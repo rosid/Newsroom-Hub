@@ -29,6 +29,8 @@ export default async function EditPenggunaPage({ params }: { params: Promise<{ i
 
   const roleOptions = assignableRoles(actor);
   const lockedRole = (target.role === 'SUPER_ADMIN' || target.role === 'ADMIN') && actor.role !== 'SUPER_ADMIN';
+  /** Akun sendiri: dikelola dari menu Akun & Profil (lihat updateUserAction). */
+  const lockedSelf = target.id === actor.id;
 
   return (
     <div className="flex flex-col gap-4">
@@ -58,12 +60,21 @@ export default async function EditPenggunaPage({ params }: { params: Promise<{ i
               Hanya Super Admin yang dapat mengubah akun admin/super admin. Anda tetap dapat melihat datanya.
             </p>
           ) : null}
+          {lockedSelf ? (
+            <p className="mb-3 rounded-lg border border-line bg-panel2 px-3 py-2 text-[12px] text-muted">
+              Ini akun Anda sendiri. Profil Anda diubah lewat{' '}
+              <Link href="/dashboard/akun" className="font-semibold text-accent hover:underline">
+                Akun &amp; Profil
+              </Link>
+              . Peran dan status akun sendiri tidak dapat diubah dari halaman ini.
+            </p>
+          ) : null}
 
           <ActionForm
             action={updateUserAction}
             submitLabel="Simpan Perubahan"
             pendingText="Menyimpan…"
-            hideSubmit={lockedRole}
+            hideSubmit={lockedRole || lockedSelf}
           >
             <input type="hidden" name="id" value={target.id} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -126,26 +137,28 @@ export default async function EditPenggunaPage({ params }: { params: Promise<{ i
             </label>
           </ActionForm>
 
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-3">
-            <ActionForm
-              action={toggleUserActiveAction}
-              submitLabel={target.isActive ? 'Nonaktifkan Akun' : 'Aktifkan Akun'}
-              buttonClassName="btn"
-              className="contents"
-              pendingText="…"
-            >
-              <input type="hidden" name="id" value={target.id} />
-            </ActionForm>
-            <ActionForm
-              action={deleteUserAction}
-              submitLabel="Hapus Akun"
-              buttonClassName="btn btn-danger"
-              className="contents"
-              pendingText="…"
-            >
-              <input type="hidden" name="id" value={target.id} />
-            </ActionForm>
-          </div>
+          {lockedSelf ? null : (
+            <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-3">
+              <ActionForm
+                action={toggleUserActiveAction}
+                submitLabel={target.isActive ? 'Nonaktifkan Akun' : 'Aktifkan Akun'}
+                buttonClassName="btn"
+                className="contents"
+                pendingText="…"
+              >
+                <input type="hidden" name="id" value={target.id} />
+              </ActionForm>
+              <ActionForm
+                action={deleteUserAction}
+                submitLabel="Hapus Akun"
+                buttonClassName="btn btn-danger"
+                className="contents"
+                pendingText="…"
+              >
+                <input type="hidden" name="id" value={target.id} />
+              </ActionForm>
+            </div>
+          )}
           <p className="hint mt-2">
             Akun yang memiliki riwayat berita tidak dapat dihapus (data pemberitaan harus tetap utuh) — gunakan
             Nonaktifkan.

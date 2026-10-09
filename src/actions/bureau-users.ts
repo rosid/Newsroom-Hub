@@ -7,11 +7,12 @@ import { genId } from '@/lib/id';
 import { logAudit } from '@/lib/audit';
 import { notifyUsers } from '@/lib/notify';
 import {
+  ACCOUNT_SELF_MSG,
   BUREAU_MANAGED_ROLES,
   bureauAssignableRoles,
-  canManageBureauMember,
   canManageBureauUsers,
 } from '@/lib/permissions';
+import { guardAccountChange } from '@/lib/account-guard';
 import { strongPassword, zodToState, type ActionState } from '@/lib/validations';
 import { roleListText } from '@/lib/constants';
 import { z } from 'zod';
@@ -41,8 +42,13 @@ const ROLE_LABELS_FALLBACK: Record<string, string> = {
  * Semua batasan ditegakkan di SERVER (bukan hanya disembunyikan di UI):
  * - hanya role yang diizinkan (`bureauAssignableRoles`),
  * - biro SELALU diambil dari akun aktor untuk Produser Daerah (tidak bisa dipalsukan lewat form),
- * - akun sasaran wajib berada di biro yang sama (`canManageBureauMember`),
+ * - akun sasaran diperiksa oleh SATU penjaga bersama (`guardAccountChange`, scope 'bureau'):
+ *   akun admin/super admin hanya boleh disentuh Super Admin, Admin hanya boleh menyentuh
+ *   akun biro, Produser Daerah hanya biro-nya sendiri,
  * - tidak dapat mengubah/menonaktifkan dirinya sendiri.
+ *
+ * JANGAN menulis ulang pemeriksaan ini di dalam action — duplikasi itulah penyebab celah
+ * audit A-2 (pengaman ada di satu jalur, tidak ada di jalur lain).
  */
 
 const bureauUserCreateSchema = z.object({
@@ -173,14 +179,21 @@ export async function updateBureauUserAction(_prev: ActionState, formData: FormD
 
   const target = await prisma.user.findUnique({ where: { id: d.id } });
   if (!target) return { ok: false, error: 'Pengguna tidak ditemukan.' };
-  if (!canManageBureauMember(actor, target)) {
-    return {
-      ok: false,
-      error: 'Anda hanya dapat mengubah akun Reporter Daerah/Magang pada biro Anda sendiri.',
-    };
-  }
+
+  // Akun sendiri: pesan khusus (guard bersama juga menolaknya).
+  if (target.id === actor.id) return { ok: false, error: ACCOUNT_SELF_MSG };
 
   const role = d.role as Role;
+  // Penjaga bersama: akun admin/super admin hanya untuk Super Admin; lingkup akun biro untuk sisanya.
+  const guard = await guardAccountChange({
+    actor,
+    target,
+    scope: 'bureau',
+    nextRole: role,
+    nextActive: d.isActive === 'on',
+  });
+  if (!guard.ok) return { ok: false, error: guard.reason, fieldErrors: guard.fieldErrors };
+
   if (!bureauAssignableRoles(actor).includes(role)) {
     return { ok: false, error: 'Role tersebut tidak dapat Anda tetapkan untuk akun biro ini.', fieldErrors: { role: 'Role tidak diizinkan' } };
   }
@@ -216,9 +229,15 @@ export async function toggleBureauUserActiveAction(_prev: ActionState, formData:
   const id = String(formData.get('id') || '');
   const target = await prisma.user.findUnique({ where: { id } });
   if (!target) return { ok: false, error: 'Pengguna tidak ditemukan.' };
-  if (!canManageBureauMember(actor, target)) {
-    return { ok: false, error: 'Anda hanya dapat mengubah akun Reporter Daerah/Magang pada biro Anda sendiri.' };
-  }
+  if (target.id === actor.id) return { ok: false, error: ACCOUNT_SELF_MSG };
+
+  const guard = await guardAccountChange({
+    actor,
+    target,
+    scope: 'bureau',
+    nextActive: !target.isActive,
+  });
+  if (!guard.ok) return { ok: false, error: guard.reason, fieldErrors: guard.fieldErrors };
 
   const next = !target.isActive;
   await prisma.user.update({ where: { id }, data: { isActive: next } });

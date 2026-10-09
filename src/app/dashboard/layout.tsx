@@ -6,6 +6,7 @@ import AppShell from '@/components/layout/AppShell';
 import {
   canManageBureau,
   canManageBureauUsers,
+  canManageStorage,
   canManageUsers,
   canViewAudit,
   newsVisibilityWhere,
@@ -29,7 +30,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     if (['umum', 'biro', 'kategori', 'email'].includes(m.key)) return canManageBureau(user);
     if (m.key === 'pengguna') return canManageUsers(user);
     if (m.key === 'pengguna-biro') return canManageBureauUsers(user);
-    if (m.key === 'integrasi') return canManageBureau(user);
+    if (m.key === 'integrasi') return canManageStorage(user);
     if (m.key === 'audit') return canViewAudit(user);
     return true; // akun
   });

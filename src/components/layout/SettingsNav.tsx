@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import Icon from '@/components/ui/Icon';
-import { canManageBureau, canManageBureauUsers, canManageUsers, canViewAudit } from '@/lib/permissions';
+import { canManageBureau, canManageBureauUsers, canManageStorage, canManageUsers, canViewAudit } from '@/lib/permissions';
 import type { CurrentUser } from '@/lib/session';
 
 const ITEMS = [
@@ -17,7 +17,8 @@ const ITEMS = [
 
 export default function SettingsNav({ user, active }: { user: CurrentUser; active: string }) {
   const allowed = ITEMS.filter((i) => {
-    if (['umum', 'biro', 'kategori', 'integrasi', 'email'].includes(i.key)) return canManageBureau(user);
+    if (['umum', 'biro', 'kategori', 'email'].includes(i.key)) return canManageBureau(user);
+    if (i.key === 'integrasi') return canManageStorage(user);
     if (i.key === 'pengguna') return canManageUsers(user);
     if (i.key === 'pengguna-biro') return canManageBureauUsers(user);
     if (i.key === 'audit') return canViewAudit(user);

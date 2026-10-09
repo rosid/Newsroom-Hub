@@ -22,6 +22,7 @@ export default function LoginForm() {
   const [state, action] = useActionState<ActionState, FormData>(loginAction, {});
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [resetDone, setResetDone] = useState(false);
 
   useEffect(() => {
@@ -63,17 +64,38 @@ export default function LoginForm() {
         <label className="label" htmlFor="password">
           Sandi
         </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          className="input"
-          placeholder="••••••••"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
+        <div className="relative">
+          <input
+            id="password"
+            name="password"
+            type={showPassword ? 'text' : 'password'}
+            autoComplete="current-password"
+            className="input !pr-11"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          {/*
+            Tombol lihat/sembunyikan sandi.
+            - `type="button"` WAJIB: tanpa itu tombol ikut mengirim form (login) saat diklik.
+            - `onMouseDown` dicegah agar fokus tidak berpindah dari kolom sandi (kursor tetap di posisi terakhir).
+            - `aria-label` + `title` supaya ikon tetap punya nama untuk pembaca layar
+              (atribut `aria-hidden` pada komponen Icon membuat ikonnya sendiri tak bersuara).
+          */}
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setShowPassword((v) => !v)}
+            aria-label={showPassword ? 'Sembunyikan sandi' : 'Lihat sandi'}
+            aria-pressed={showPassword}
+            title={showPassword ? 'Sembunyikan sandi' : 'Lihat sandi'}
+            data-toggle-password
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted transition-colors hover:bg-panel2 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            <Icon name={showPassword ? 'eyeOff' : 'eye'} size={16} />
+          </button>
+        </div>
       </div>
 
       {state?.error ? (

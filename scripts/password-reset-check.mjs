@@ -118,6 +118,11 @@ try {
   await page.waitForSelector('text=Silakan periksa kotak masuk', { timeout: 60000 });
   check('permintaan reset dijawab dengan pesan generik', (await page.locator('text=Silakan periksa kotak masuk').count()) > 0);
   check('tidak ada tautan manual saat email berhasil terkirim', (await page.locator('[data-manual-reset-url]').count()) === 0);
+  const afterRequestHtml = await page.content();
+  check(
+    'halaman publik tidak pernah memuat token reset (audit A-1)',
+    !/reset-password\?token=/.test(afterRequestHtml)
+  );
 
   const box2 = await mailbox();
   check('email reset benar-benar terkirim', box2.count === 1, `${box2.count} pesan`);
@@ -176,18 +181,19 @@ try {
   await page.goto(`${BASE}/reset-password`, { waitUntil: 'domcontentloaded' });
   check('halaman reset tanpa token memberi arahan', (await page.locator('text=Minta Tautan Baru').count()) > 0);
 
-  // ============ 8. Email belum dikonfigurasi → pengguna tidak terkunci ============
-  // Admin mengubah provider ke HTTP API tanpa API key valid (mode API + key dummy akan gagal kirim),
-  // lalu memastikan tautan manual muncul. Dipakai provider 'resend' dengan endpoint kustom yang mati.
-  const adminPage = page;
-  const adminLogin = await login(adminPage, 'admin@newsroom.demo', 'Demo123!');
+  // ============ 8. Email gagal terkirim → tautan TIDAK boleh bocor ke halaman publik ============
+  // PERBAIKAN AUDIT A-1: /lupa-password dapat dibuka siapa pun tanpa login, jadi tautan
+  // reset tidak boleh pernah ditampilkan di sana (dulu ditampilkan bila email gagal/belum
+  // diatur → siapa pun yang menebak email terdaftar bisa mengambil alih akun).
+  // Admin mengubah provider ke HTTP API dengan endpoint mati supaya pengiriman pasti gagal.
+  const adminLogin = await login(page, 'admin@newsroom.demo', 'Demo123!');
   if (adminLogin) {
-    await adminPage.goto(`${BASE}/dashboard/pengaturan/email`, { waitUntil: 'domcontentloaded' });
-    await adminPage.click('button[data-provider="resend"]');
-    await adminPage.fill('#e-apikey', 'kunci-dummy-uji');
-    await adminPage.fill('#e-apibase', 'http://127.0.0.1:59999/api'); // endpoint mati → pasti gagal
-    await adminPage.click('button:has-text("Simpan Pengaturan Email")');
-    await adminPage.waitForSelector('text=Pengaturan email tersimpan', { timeout: 60000 });
+    await page.goto(`${BASE}/dashboard/pengaturan/email`, { waitUntil: 'domcontentloaded' });
+    await page.click('button[data-provider="resend"]');
+    await page.fill('#e-apikey', 'kunci-dummy-uji');
+    await page.fill('#e-apibase', 'http://127.0.0.1:59999/api'); // endpoint mati → pasti gagal
+    await page.click('button:has-text("Simpan Pengaturan Email")');
+    await page.waitForSelector('text=Pengaturan email tersimpan', { timeout: 60000 });
     check('pengaturan beralih ke HTTP API (untuk uji jalur gagal)', true);
 
     await page.context().clearCookies();
@@ -195,16 +201,37 @@ try {
     await page.waitForSelector('#email', { timeout: 30000 });
     await page.fill('#email', 'reporter.surabaya@newsroom.demo');
     await page.click('button:has-text("Kirim Tautan Reset")');
-    await page.waitForSelector('[data-manual-reset-url]', { timeout: 90000 });
-    const manualUrl = await page.locator('[data-manual-reset-url]').inputValue();
-    check('email gagal terkirim → tautan manual ditampilkan (akun tidak terkunci)', Boolean(manualUrl) && manualUrl.includes('/reset-password?token='), manualUrl.slice(-40));
-    check('pesan galat menjelaskan penyebabnya', (await page.locator('[data-reset-fallback="1"]').innerText()).toLowerCase().includes('tidak terkirim'));
+    await page.waitForSelector('[data-reset-fallback="1"]', { timeout: 90000 });
 
-    const manualOk = await login(page, 'admin@newsroom.demo', 'Demo123!');
-    if (manualOk) {
-      await page.goto(`${BASE}/api/notifications`, { waitUntil: 'domcontentloaded' });
-      const body = await page.locator('body').innerText();
-      check('admin mendapat notifikasi kegagalan email', /reset kata sandi/i.test(body) && /gagal/i.test(body), body.slice(0, 80));
+    check('email gagal terkirim → tautan reset TIDAK ditampilkan di halaman publik', (await page.locator('[data-manual-reset-url]').count()) === 0);
+    const publicHtml = await page.content();
+    check('HTML halaman publik tidak memuat token reset apa pun', !/reset-password\?token=/.test(publicHtml));
+    const failedText = await page.locator('[data-reset-fallback="1"]').innerText();
+    check('pesan menjelaskan email tidak dapat dikirim', /tidak dapat dikirim/i.test(failedText), failedText.slice(0, 90));
+    check('pengguna diarahkan menghubungi admin redaksi', /hubungi admin redaksi/i.test(failedText));
+
+    const adminOk = await login(page, 'admin@newsroom.demo', 'Demo123!');
+    if (adminOk) {
+      const notifRes = await page.request.get(`${BASE}/api/notifications`);
+      const notif = await notifRes.json();
+      const notifText = JSON.stringify(notif);
+      check('admin mendapat notifikasi kegagalan email reset', /reset kata sandi/i.test(notifText), notifText.slice(0, 90));
+      check(
+        'notifikasi mengarahkan admin ke jalur pemulihan (Pengaturan → Pengguna)',
+        /Pengaturan\s*(→|->)\s*Pengguna/i.test(notifText)
+      );
+
+      // Jalur pemulihan pengganti benar-benar tersedia: admin menetapkan sandi baru
+      await page.goto(`${BASE}/dashboard/pengaturan/pengguna`, { waitUntil: 'domcontentloaded' });
+      const row = page.locator('.dtable tbody tr', { hasText: 'reporter.surabaya@newsroom.demo' }).first();
+      check('akun pelapor tampil pada daftar Pengguna (admin dapat menolong)', (await row.count()) > 0);
+      await row.locator('a:has-text("Ubah")').click();
+      // Navigasi client-side: tunggu kolom sandi benar-benar dirender, jangan hanya DOMContentLoaded.
+      await page.waitForSelector('input[name="newPassword"]', { timeout: 45000 }).catch(() => null);
+      check(
+        'admin dapat menetapkan sandi baru untuk akun tersebut (pengganti tautan publik)',
+        (await page.locator('input[name="newPassword"]').count()) > 0
+      );
     }
   } else {
     check('pengaturan beralih ke HTTP API (untuk uji jalur gagal)', false, 'login admin gagal');

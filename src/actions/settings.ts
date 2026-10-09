@@ -1,7 +1,7 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
-import { requireRole } from '@/lib/session';
+import { requireRole, requireUser } from '@/lib/session';
 import { genId } from '@/lib/id';
 import { logAudit } from '@/lib/audit';
 import { setSetting, getOrgSettings, getSeoSettings, getEditorialSettings, DEFAULT_ORG } from '@/lib/settings';
@@ -26,6 +26,7 @@ import {
   type ActionState,
 } from '@/lib/validations';
 import { getSetting, getStoredEmailSettings, getEmailSettings, isEmailConfigured, EMAIL_PROVIDER_LABELS } from '@/lib/settings';
+import { canManageStorage } from '@/lib/permissions';
 import { encryptSecret } from '@/lib/crypto';
 import { getMailBranding, sendMail, testEmailHtml } from '@/lib/mail';
 
@@ -202,7 +203,10 @@ export async function deleteCategoryAction(_prev: ActionState, formData: FormDat
 }
 
 export async function testStorageAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const actor = await requireRole(['SUPER_ADMIN', 'ADMIN']);
+  // Wewenang dari SATU sumber kebenaran (audit A-3): halaman, menu sidebar, dan
+  // ketiga action storage memakai canManageStorage yang sama.
+  const actor = await requireUser();
+  if (!canManageStorage(actor)) return { ok: false, error: 'Anda tidak berhak mengelola konfigurasi storage.' };
   const mode: StorageMode = String(formData.get('mode') || 'local') === 's3' ? 's3' : 'local';
 
   if (mode === 'local') {
@@ -244,7 +248,8 @@ export async function testStorageAction(_prev: ActionState, formData: FormData):
  * menghapus kredensial yang sudah tersimpan.
  */
 export async function saveStorageSettingsAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const actor = await requireRole(['SUPER_ADMIN', 'ADMIN']);
+  const actor = await requireUser();
+  if (!canManageStorage(actor)) return { ok: false, error: 'Anda tidak berhak mengubah konfigurasi storage.' };
   const parsed = storageSettingsSchema.safeParse({
     mode: formData.get('mode') ?? 'local',
     provider: formData.get('provider') ?? 'custom',
@@ -338,7 +343,8 @@ export async function saveStorageSettingsAction(_prev: ActionState, formData: Fo
 
 /** Kembalikan storage ke penyimpanan lokal (folder uploads/). */
 export async function resetStorageAction(_prev: ActionState, _formData: FormData): Promise<ActionState> {
-  const actor = await requireRole(['SUPER_ADMIN', 'ADMIN']);
+  const actor = await requireUser();
+  if (!canManageStorage(actor)) return { ok: false, error: 'Anda tidak berhak mengubah konfigurasi storage.' };
   const stored = await getSetting<StoredStorageSettings>('storage', {});
   await setSetting('storage', { ...stored, mode: 'local', provider: 'local', updatedAt: new Date().toISOString(), updatedBy: actor.name });
   await logAudit({ actor, action: 'SETTING_STORAGE_RESET_LOCAL', entity: 'Setting', entityId: 'storage' });

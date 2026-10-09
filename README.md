@@ -486,16 +486,16 @@ Admin/Super Admin (pengaman agar halaman pengelolaan global tidak menjadi jalur 
 ## 13. Uji coba
 
 ```bash
-npm run smoke:server   # server produksi + 71 pemeriksaan alur utama (termasuk 5 pemeriksaan keamanan login) + 16 tampilan kartu
+npm run smoke:server   # server produksi + 78 pemeriksaan alur utama (termasuk 5 pemeriksaan keamanan login + 7 pemeriksaan ikon lihat-sandi) + 16 tampilan kartu
 npm run smoke:storage  # 33 pemeriksaan integrasi storage S3 (memakai mock S3 lokal, tanpa dependensi tambahan)
 npm run smoke:presign  # 26 pemeriksaan unggahan langsung pre-signed URL (2 mock S3 HTTPS: CORS aktif & tanpa CORS)
 npm run smoke:share    # 18 pemeriksaan unit token + 34 pemeriksaan unduh & berbagi tamu
 npm run smoke:upload   # 18 pemeriksaan unggah: progres + banyak footage sekaligus
 npm run smoke:chat     # 75 pemeriksaan unit aturan (matriks 11 role) + 56 pemeriksaan integrasi chat
-npm run smoke:cues     # 12 pemeriksaan unit sanitasi + 24 pemeriksaan panel Format Broadcast
-npm run smoke:export   # 38 pemeriksaan unit penyusun data + 27 pemeriksaan ekspor CSV (+ pembuktian PDF/Excel sudah hilang)
-npm run smoke:reset    # 37 pemeriksaan unit token/email + 37 pemeriksaan alur lupa kata sandi
-npm run smoke:bureau-users # 25 pemeriksaan unit izin + 34 pemeriksaan akun biro Produser Daerah
+npm run smoke:cues     # 18 pemeriksaan unit sanitasi (termasuk pengerasan CSS/XSS-1) + 27 pemeriksaan panel Format Broadcast
+npm run smoke:export   # 46 pemeriksaan unit penyusun data (termasuk penetralan formula CSV/SAN-1) + 29 pemeriksaan ekspor CSV (+ pembuktian PDF/Excel sudah hilang)
+npm run smoke:reset    # 37 pemeriksaan unit token/email + 43 pemeriksaan alur lupa kata sandi (termasuk A-1: tautan reset tidak pernah tampil di halaman publik)
+npm run smoke:bureau-users # 45 unit izin + 8 unit penjaga akun (data DB) + 51 integrasi akun biro & pengguna
 npm run smoke:airing   # 35 pemeriksaan unit tayang + 49 integrasi Tayang Onair/Medsos & laporan kanal
 npm run reset:unit     # hanya uji unit token reset & pengaturan email (butuh DB salinan /tmp)
 npm run export:unit    # hanya uji unit penyusun data ekspor (tanpa browser)

@@ -36,6 +36,12 @@ const securityHeaders = [
   },
 ];
 
+/**
+ * CSP untuk berkas media (`/api/media/...`) — lihat penjelasan panjang di `headers()`.
+ * Dipakai di next.config karena header di sini MENIMPA header dari route handler.
+ */
+const MEDIA_SANDBOX_CSP = "sandbox; default-src 'none'";
+
 const nextConfig = {
   basePath: BASE_PATH,
   reactStrictMode: true,
@@ -44,7 +50,24 @@ const nextConfig = {
   // Catatan: pdfkit & exceljs TIDAK lagi dipakai — ekspor PDF & Excel dihapus
   // (hanya CSV) untuk mengurangi beban VPS. Tidak perlu serverExternalPackages.
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders }];
+    return [
+      { source: '/:path*', headers: securityHeaders },
+      {
+        // ---- Berkas media (/api/media/...) ----------------------------------------
+        // PENTING (audit Okt 2026, E-1): header dari next.config MENIMPA header dengan
+        // nama sama yang diset route handler. Terbukti empiris: CSP yang diset di
+        // app/api/media/[...key]/route.ts HILANG dari respons, yang tersisa hanya CSP
+        // global di atas — sehingga mitigasi "sandbox" untuk berkas non-gambar & SVG
+        // (yang berpotensi XSS karena SVG dapat memuat <script>) TIDAK pernah berlaku.
+        // Karena itu kebijakan sandbox untuk berkas media WAJIB didefinisikan di sini
+        // (aturan yang cocok belakangan menimpa yang lebih dulu).
+        // sandbox = origin opaque + tanpa skrip/form/popup ⇒ tidak dapat bertindak atas
+        // nama sesi pengguna. Aman untuk tampilan: CSP pada respons SUBRESOURCE
+        // (<img>/<video>) diabaikan browser, jadi gambar & footage tetap tampil normal.
+        source: '/api/media/:path*',
+        headers: [{ key: 'Content-Security-Policy', value: MEDIA_SANDBOX_CSP }],
+      },
+    ];
   },
   experimental: {
     serverActions: {

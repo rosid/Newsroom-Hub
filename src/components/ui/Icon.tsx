@@ -36,6 +36,8 @@ const PATHS: Record<string, string> = {
   pin: 'M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1118 0zM12 13a3 3 0 100-6 3 3 0 000 6z',
   external: 'M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14 21 3',
   eye: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 15a3 3 0 100-6 3 3 0 000 6z',
+  // Varian "mata tertutup" untuk tombol lihat/sembunyikan sandi (lihat LoginForm).
+  eyeOff: 'M2 2l20 20M6.7 6.7C3.6 8.6 1 12 1 12s4 8 11 8c2.1 0 3.9-.7 5.4-1.7M9.9 4.3A10.6 10.6 0 0112 4c7 0 11 8 11 8a19 19 0 01-2.6 3.5',
   refresh: 'M23 4v6h-6M1 20v-6h6M3.5 9a9 9 0 0114.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0020.5 15',
   flame: 'M12 22a7 7 0 007-7c0-5-7-13-7-13S5 10 5 15a7 7 0 007 7zM12 18a3 3 0 003-3c0-2-3-6-3-6s-3 4-3 6a3 3 0 003 3z',
   push: 'M12 19V5M5 12l7-7 7 7',

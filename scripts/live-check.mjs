@@ -57,6 +57,21 @@ try {
     (await page.inputValue('#email')) === '' && (await page.inputValue('#password')) === ''
   );
 
+  // Fitur lihat/sembunyikan sandi (ikon mata) di LIVE — read-only, nilai sandi diisi
+  // sementara lalu dikosongkan lagi (tidak ada login yang dilakukan di sini).
+  const eyeToggleLive = page.locator('[data-toggle-password]');
+  check('live: tombol mata ada di kolom sandi', (await eyeToggleLive.count()) === 1);
+  check('live: sandi tersembunyi secara bawaan', (await page.locator('#password').getAttribute('type')) === 'password');
+  await page.fill('#password', 'UjiLihat123!');
+  await eyeToggleLive.click();
+  await page.waitForTimeout(200);
+  check('live: klik ikon mata menampilkan sandi', (await page.locator('#password').getAttribute('type')) === 'text');
+  check('live: nilai sandi tetap utuh saat ditampilkan', (await page.inputValue('#password')) === 'UjiLihat123!');
+  await eyeToggleLive.click();
+  await page.waitForTimeout(200);
+  check('live: klik kedua menyembunyikan kembali', (await page.locator('#password').getAttribute('type')) === 'password');
+  await page.fill('#password', '');
+
   const styled = await page.evaluate(() => {
     const el = document.querySelector('.input');
     return el ? getComputedStyle(el).borderRadius : 'none';

@@ -127,6 +127,22 @@ try {
     Boolean(tabHeader) && csvLines.filter((r) => r.length > 20 && r[0] !== 'No').every((r) => r.length === tabHeader.length)
   );
 
+  // PENETRALAN FORMULA tidak boleh merusak data wajar (perbaikan audit SAN-1).
+  // Sel placeholder "-" (Geo-tag / Waktu Tayang / Waktu Siar kosong) pernah ikut
+  // berubah menjadi "'-" — asersi ini menjaga agar tidak terulang.
+  const allCells = csvLines.flat();
+  const neutralized = allCells.filter((c) => c.startsWith("'"));
+  check(
+    'tabulasi CSV: tidak ada sel data wajar yang diberi apostrof penetralan',
+    neutralized.length === 0,
+    neutralized.slice(0, 5).join(' | ') || 'tidak ada'
+  );
+  check(
+    'tabulasi CSV: sel placeholder "-" tetap utuh',
+    allCells.filter((c) => c === '-').length > 0 && !allCells.some((c) => c === "'-"),
+    `${allCells.filter((c) => c === '-').length} sel "-"`
+  );
+
   // Permintaan format lama (?format=xlsx / ?format=pdf) harus tetap dilayani sebagai CSV
   for (const legacy of ['xlsx', 'pdf']) {
     const res = await page.request.get(`${origin}${BASE_PATH}/api/export/news?tab=pusat&range=all&format=${legacy}`);

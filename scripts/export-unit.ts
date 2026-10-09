@@ -117,6 +117,46 @@ check('CSV memakai pemisah ; dan kutip ganda di-escape', csv.includes('"Naskah "
 check('CSV menangani newline dalam sel', csv.includes('"Baris\nbaru"'));
 check('CSV header sesuai', csv.startsWith('"Judul";"Catatan"'));
 
+// =====================================================================================
+// Netralisasi CSV formula injection (perbaikan audit Tahap 2 — SAN-1, CWE-1236)
+//
+// Judul/lokasi/tag/nama reporter adalah teks yang diketik reporter. Tanpa penetralan,
+// sel seperti `=cmd|' /C calc'!A0` dieksekusi Excel/LibreOffice saat admin membuka ekspor.
+// PENTING: nilai yang memang murni angka/koordinat TIDAK boleh berubah.
+// =====================================================================================
+const inj = buildCsv(['Judul', 'Lokasi'], [['=cmd|\' /C calc\'!A0', '@SUM(1+1)']]);
+check(
+  'formula = dan @ dinetralkan (diberi awalan apostrof)',
+  inj.includes('"\'=cmd|\' /C calc\'!A0"') && inj.includes('"\'@SUM(1+1)"'),
+  inj.split('\r\n')[1]
+);
+const inj2 = buildCsv(['A', 'B'], [['+HYPERLINK("https://jahat.example","x")', '-2+3+cmd|\' /C calc\'!A0']]);
+check(
+  'formula + dan - (bukan angka) dinetralkan',
+  inj2.includes('"\'+HYPERLINK') && inj2.includes('"\'-2+3+cmd'),
+  inj2.split('\r\n')[1]
+);
+check('TAB di awal sel dinetralkan', buildCsv(['A'], [['\tTAB di depan']]).includes('"\'\tTAB di depan"'));
+
+const geoRows = buildCsv(['Geo', 'Angka', 'Telepon'], [['-6.2000, 106.8166', -7.5, '+628123456789']]);
+check(
+  'koordinat/angka/telepon TIDAK diubah (data tetap utuh)',
+  geoRows.includes('"-6.2000, 106.8166"') && geoRows.includes('"-7.5"') && geoRows.includes('"+628123456789"'),
+  geoRows.split('\r\n')[1]
+);
+check('angka bertipe number tidak diberi apostrof', !/"'-\d/.test(buildCsv(['A'], [[-12.5]])));
+check('teks biasa tanpa awalan berisiko tidak diubah', buildCsv(['A'], [['Naskah normal 2026']]).includes('"Naskah normal 2026"'));
+
+// Pengaman data: sel placeholder "-" (kolom Geo-tag/Waktu Tayang/Waktu Siar yang kosong)
+// TIDAK boleh berubah menjadi "'-" — deretan tanda bukan formula.
+const placeholders = buildCsv(['Geo', 'Waktu', 'Catatan'], [['-', '-', '- ']]);
+check(
+  'sel placeholder "-" tetap utuh (tidak diberi apostrof)',
+  placeholders.split('\r\n')[1] === '"-";"-";"- "',
+  placeholders.split('\r\n')[1]
+);
+check('rentetan tanda seperti "--" tidak diubah', buildCsv(['A'], [['--']]).includes('"--"'));
+
 // Penghapusan format PDF & Excel (permintaan pemilik aplikasi: kurangi beban VPS)
 check('hanya format CSV yang terdaftar', EXPORT_FORMATS.length === 1 && EXPORT_FORMATS[0] === 'csv', EXPORT_FORMATS.join(', '));
 check(

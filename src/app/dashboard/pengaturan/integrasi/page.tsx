@@ -1,5 +1,7 @@
-import { requireRole } from '@/lib/session';
+import Link from 'next/link';
+import { requireUser } from '@/lib/session';
 import { prisma } from '@/lib/prisma';
+import { canManageStorage } from '@/lib/permissions';
 import { canUseDirectUpload, getStorageStatus } from '@/lib/storage';
 import { getSetting } from '@/lib/settings';
 import type { StoredStorageSettings } from '@/lib/storage';
@@ -25,7 +27,23 @@ const ENV_ROWS = [
 ];
 
 export default async function IntegrasiPage() {
-  const user = await requireRole(['SUPER_ADMIN', 'ADMIN']);
+  // Wewenang memakai SATU sumber kebenaran (audit A-3) — sama dengan yang dipakai
+  // menu sidebar dan ketiga action storage (simpan/uji/reset).
+  const user = await requireUser();
+  if (!canManageStorage(user)) {
+    return (
+      <div className="panel shadow-soft mx-auto max-w-lg p-6 text-center">
+        <Icon name="lock" size={22} className="mx-auto text-muted" />
+        <h1 className="mt-2 text-[16px] font-bold">Akses ditolak</h1>
+        <p className="mt-1 text-[12.5px] text-muted">
+          Konfigurasi storage hanya dapat dikelola Admin Redaksi dan Super Admin.
+        </p>
+        <Link href="/dashboard" className="btn btn-primary mt-4">
+          Kembali ke Dashboard
+        </Link>
+      </div>
+    );
+  }
   const [status, stored, agg, byType] = await Promise.all([
     getStorageStatus(),
     getSetting<StoredStorageSettings>('storage', {}),

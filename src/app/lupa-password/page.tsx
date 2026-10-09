@@ -41,8 +41,9 @@ export default async function ForgotPasswordPage() {
         <p className="flex items-start gap-2 rounded-lg border border-[color-mix(in_srgb,var(--warn)_40%,var(--line))] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-3 py-2 text-[12px] text-[color:var(--warn)]">
           <Icon name="alert" size={14} className="mt-[1px] shrink-0" />
           <span>
-            Pengiriman email belum dikonfigurasi admin (Pengaturan → Email &amp; Notifikasi). Anda tetap bisa
-            meminta tautan reset; tautannya akan ditampilkan langsung di layar agar akun tidak terkunci.
+            Pengiriman email belum dikonfigurasi admin (Pengaturan → Email &amp; Notifikasi). Permintaan tetap dicatat,
+            tetapi tautan reset tidak dapat dikirim ke email — <strong>hubungi admin redaksi</strong> untuk menetapkan
+            kata sandi baru akun Anda. Demi keamanan, tautan reset tidak pernah ditampilkan di halaman publik.
           </span>
         </p>
       ) : null}

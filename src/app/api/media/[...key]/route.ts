@@ -160,6 +160,27 @@ export async function GET(req: Request, ctx: { params: Promise<{ key: string[] }
   return NextResponse.json({ error: 'Berkas tidak ditemukan' }, { status: 404 });
 }
 
+/**
+ * Berkas yang boleh dijalankan browser sebagai DOKUMEN.
+ *
+ * PENTING (perbaikan audit Okt 2026 — stored XSS lewat SVG): `image/svg+xml` adalah
+ * gambar, TETAPI juga dokumen aktif yang dapat memuat <script>. Sebelumnya berkas
+ * dengan awalan `image/` dibiarkan tanpa CSP pembatas, sehingga SVG hasil unggahan
+ * yang dibuka langsung di tab (mis. lewat tautan `target="_blank"`) menjalankan
+ * skripnya di origin aplikasi. Sekarang SVG diperlakukan sama seperti berkas
+ * non-gambar: diberi `Content-Security-Policy: sandbox` (origin opaque, tanpa
+ * script) + nosniff, sehingga tidak dapat bertindak atas nama sesi pengguna.
+ * Saat diload sebagai <img>/<video>, header ini tidak memengaruhi tampilan.
+ *
+ * CATATAN PENTING (terverifikasi empiris): header CSP untuk path `/api/media/*`
+ * yang EFEKTIF berasal dari `next.config.js` (`MEDIA_SANDBOX_CSP`), karena header
+ * dari next.config menimpa header bernama sama yang diset route handler. CSP di sini
+ * dipertahankan sebagai lapisan kedua bila aturan konfigurasi itu diubah/dihapus —
+ * jangan mengandalkannya sebagai satu-satunya penjaga.
+ */
+const isActiveDocument = (contentType: string) =>
+  !contentType.startsWith('image/') || contentType === 'image/svg+xml';
+
 function inlineHeaders(contentType: string, rel: string, viaToken: boolean): Headers {
   const headers = new Headers({
     'Content-Type': contentType,
@@ -168,8 +189,8 @@ function inlineHeaders(contentType: string, rel: string, viaToken: boolean): Hea
     'Cache-Control': viaToken ? 'private, max-age=600' : 'private, max-age=3600',
     'Accept-Ranges': 'bytes',
   });
-  if (!contentType.startsWith('image/')) {
-    // Berkas non-gambar tidak dieksekusi browser (mitigasi XSS lewat unggahan)
+  if (isActiveDocument(contentType)) {
+    // Dokumen aktif (non-gambar, termasuk SVG) tidak boleh berjalan di origin kita
     headers.set('Content-Disposition', `inline; filename="${path.basename(rel)}"`);
     headers.set('Content-Security-Policy', "sandbox; default-src 'none'");
   }

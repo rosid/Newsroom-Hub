@@ -2,6 +2,10 @@
  * Uji unit sisipan Format Broadcast pada lapisan sanitasi (tanpa browser):
  * kelas chip penanda harus dipertahankan, sedangkan kelas/atribut lain tetap dibuang.
  *
+ * Sejak audit keamanan Tahap 2 berkas ini juga menjaga PENGERASAN `sanitize.ts`:
+ * atribut `style` hanya boleh memuat properti tampilan teks (temuan XSS-1 — CSS aktif
+ * seperti `position:fixed`/`background-image:url(...)` pernah lolos apa adanya).
+ *
  *   npx tsx scripts/cues-unit.ts
  */
 import { sanitizeHtml, stripHtml } from '../src/lib/sanitize';
@@ -61,6 +65,46 @@ check('pratinjau teks memuat penanda', preview.includes('[ANCHOR ON CAM]') && pr
 // 6) Naskah tanpa penanda tetap aman (regresi)
 const plain = sanitizeHtml('<p>Naskah biasa tanpa penanda.</p>');
 check('naskah biasa tetap utuh', plain === '<p>Naskah biasa tanpa penanda.</p>', plain);
+
+// =====================================================================================
+// 7) PENGERASAN ATRIBUT `style` (perbaikan audit Tahap 2 — XSS-1)
+//
+// Sebelumnya `style` diizinkan tanpa batasan isi sehingga naskah/pengumuman dapat
+// menyimpan CSS aktif: overlay penuh layar (form login palsu) dan beacon ke host luar.
+// Sekarang hanya properti tampilan teks yang boleh bertahan.
+// =====================================================================================
+const overlay = sanitizeHtml(
+  '<p>Halo</p><span style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:#fff;z-index:99999">Login palsu</span>'
+);
+check(
+  'CSS overlay (position/z-index/ukuran) dibuang',
+  !/position|z-index|top:|left:|width:|height:/i.test(overlay) && overlay.includes('Login palsu'),
+  overlay
+);
+
+const beacon = sanitizeHtml('<span style="background-image:url(https://jahat.example/x.png)">x</span>');
+check('beacon background-image:url() dibuang', !/background-image|url\(/i.test(beacon), beacon);
+
+const nonVisual = sanitizeHtml('<span style="content:url(https://jahat.example);cursor:pointer;filter:blur(2px)">x</span>');
+check('properti content/cursor/filter dibuang', !/content|cursor|filter/i.test(nonVisual), nonVisual);
+
+const mixedCss = sanitizeHtml('<span style="color:red;position:fixed;top:0">x</span>');
+check(
+  'properti jahat dibuang, properti sah dipertahankan',
+  mixedCss === '<span style="color:red">x</span>',
+  mixedCss
+);
+
+const hugeFont = sanitizeHtml('<span style="font-size:900px">x</span>');
+const okFont = sanitizeHtml('<span style="font-size:14px">x</span>');
+check('font-size ekstrem dibuang, ukuran wajar dipertahankan', hugeFont === '<span>x</span>' && okFont.includes('font-size:14px'), `${hugeFont} | ${okFont}`);
+
+const styledChip = sanitizeHtml(`<span class="${CUE_CLASS} ${cueToneClass('anchor')}" style="position:fixed;top:0">[ANCHOR ON CAM]</span>`);
+check(
+  'chip penanda tetap utuh walau ada style jahat',
+  styledChip.includes(`class="bc-cue bc-cue-anchor"`) && styledChip.includes('[ANCHOR ON CAM]') && !/position/i.test(styledChip),
+  styledChip
+);
 
 console.log(`\n${pass}/${pass + fail} pemeriksaan unit penanda lulus`);
 if (fail) process.exit(1);

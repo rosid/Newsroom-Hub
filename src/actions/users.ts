@@ -7,6 +7,7 @@ import { genId } from '@/lib/id';
 import { logAudit } from '@/lib/audit';
 import { notifyUsers } from '@/lib/notify';
 import { assignableRoles } from '@/lib/permissions';
+import { guardAccountChange } from '@/lib/account-guard';
 import { userCreateSchema, userUpdateSchema, zodToState, type ActionState } from '@/lib/validations';
 import type { Role } from '@prisma/client';
 
@@ -89,17 +90,38 @@ export async function updateUserAction(_prev: ActionState, formData: FormData): 
   const target = await prisma.user.findUnique({ where: { id: d.id } });
   if (!target) return { ok: false, error: 'Pengguna tidak ditemukan.' };
 
-  if (!assignableRoles(actor).includes(d.role as Role)) {
-    return { ok: false, error: 'Anda tidak berhak memberi role tersebut.' };
-  }
-  if ((target.role === 'SUPER_ADMIN' || target.role === 'ADMIN') && actor.role !== 'SUPER_ADMIN') {
-    return { ok: false, error: 'Hanya Super Admin yang dapat mengubah akun admin.' };
-  }
-  if (target.id === actor.id && d.isActive !== 'on') {
-    return { ok: false, error: 'Tidak dapat menonaktifkan akun sendiri.' };
+  // Akun SENDIRI tidak dikelola dari halaman ini (halaman ini untuk akun orang lain):
+  // profil sendiri diubah lewat menu Akun & Profil, sedangkan peran & status sendiri
+  // tidak boleh diubah dari sini (cegah menurunkan wewenang sendiri / terkunci).
+  //
+  // CATATAN PERBAIKAN: sebelumnya pemeriksaan "isActive" di bawah SELALU gagal untuk akun
+  // sendiri karena kotak centang status dinonaktifkan pada halaman (input disabled tidak
+  // ikut terkirim) → menyimpan profil sendiri dijawab "Tidak dapat menonaktifkan akun
+  // sendiri.". Sekarang ditangani eksplisit dengan pesan yang benar.
+  if (target.id === actor.id) {
+    return {
+      ok: false,
+      error:
+        'Ini akun Anda sendiri. Ubah profil Anda dari menu Akun & Profil — peran dan status akun sendiri tidak dapat diubah dari halaman ini.',
+    };
   }
 
   const role = d.role as Role;
+  if (!assignableRoles(actor).includes(role)) {
+    return { ok: false, error: 'Anda tidak berhak memberi role tersebut.' };
+  }
+
+  // Penjaga bersama: akun admin/super admin hanya untuk Super Admin; Super Admin aktif
+  // terakhir tidak boleh diturunkan/dinonaktifkan (cegah platform terkunci).
+  const guard = await guardAccountChange({
+    actor,
+    target,
+    scope: 'global',
+    nextRole: role,
+    nextActive: d.isActive === 'on',
+  });
+  if (!guard.ok) return { ok: false, error: guard.reason, fieldErrors: guard.fieldErrors };
+
   if (REGIONAL_ROLES.includes(role) && !d.bureauId) {
     return { ok: false, error: 'Role daerah/kontributor/magang wajib memiliki biro.' };
   }
@@ -135,9 +157,14 @@ export async function toggleUserActiveAction(_prev: ActionState, formData: FormD
   const target = await prisma.user.findUnique({ where: { id } });
   if (!target) return { ok: false, error: 'Pengguna tidak ditemukan.' };
   if (target.id === actor.id) return { ok: false, error: 'Tidak dapat menonaktifkan akun sendiri.' };
-  if ((target.role === 'SUPER_ADMIN' || target.role === 'ADMIN') && actor.role !== 'SUPER_ADMIN') {
-    return { ok: false, error: 'Hanya Super Admin yang dapat mengubah akun admin.' };
-  }
+
+  const guard = await guardAccountChange({
+    actor,
+    target,
+    scope: 'global',
+    nextActive: !target.isActive,
+  });
+  if (!guard.ok) return { ok: false, error: guard.reason };
 
   const next = !target.isActive;
   await prisma.user.update({ where: { id }, data: { isActive: next } });
@@ -152,13 +179,14 @@ export async function deleteUserAction(_prev: ActionState, formData: FormData): 
 
   const target = await prisma.user.findUnique({ where: { id } });
   if (!target) return { ok: false, error: 'Pengguna tidak ditemukan.' };
-  if ((target.role === 'SUPER_ADMIN' || target.role === 'ADMIN') && actor.role !== 'SUPER_ADMIN') {
-    return { ok: false, error: 'Hanya Super Admin yang dapat menghapus akun admin.' };
-  }
-  if (target.role === 'SUPER_ADMIN') {
-    const total = await prisma.user.count({ where: { role: 'SUPER_ADMIN', isActive: true } });
-    if (total <= 1) return { ok: false, error: 'Super Admin terakhir tidak dapat dihapus.' };
-  }
+
+  const guard = await guardAccountChange({
+    actor,
+    target,
+    scope: 'global',
+    action: 'delete',
+  });
+  if (!guard.ok) return { ok: false, error: guard.reason };
 
   const [news, reviewed] = await Promise.all([
     prisma.news.count({ where: { authorId: id } }),

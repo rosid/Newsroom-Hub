@@ -25,7 +25,11 @@ import {
 import { forgotPasswordSchema, resetPasswordSchema, zodToState, type ActionState } from '@/lib/validations';
 
 /** State khusus halaman reset: sukses perlu mengarahkan pengguna ke halaman masuk. */
-export type ResetState = ActionState & { done?: boolean };
+export type ResetState = ActionState & {
+  done?: boolean;
+  /** Permintaan tercatat, tetapi email reset gagal/belum terkirim (tautan TIDAK ditampilkan). */
+  mailFailed?: boolean;
+};
 
 async function clientIp(): Promise<string> {
   try {
@@ -39,10 +43,17 @@ async function clientIp(): Promise<string> {
 /**
  * Permintaan reset kata sandi.
  *
- * Keamanan: respons SELALU sama (“bila email terdaftar, tautan dikirim”) agar tidak
- * membocorkan email mana yang terdaftar. Bila email belum dikonfigurasi atau gagal
- * terkirim, admin tetap dapat menolong pengguna — tautan disediakan langsung di layar
- * (aplikasi internal, sehingga ini lebih berguna daripada membuat pengguna terkunci).
+ * KEAMANAN (perbaikan audit Okt 2026 — KRITIS): respons SELALU sama (“bila email
+ * terdaftar, tautan dikirim”) agar tidak membocorkan email mana yang terdaftar.
+ *
+ * PENTING: tautan reset TIDAK PERNAH dikembalikan ke pemanggil. Halaman
+ * `/lupa-password` bersifat PUBLIK (tanpa login), jadi menampilkan tautan reset di
+ * sana berarti siapa pun yang menebak email terdaftar dapat mengambil alih akun —
+ * termasuk akun Super Admin. Sebelumnya, bila email belum diatur/gagal terkirim,
+ * action ini mengembalikan URL reset untuk ditampilkan di layar (temuan audit A-1).
+ * Pengguna sekarang diarahkan ke admin redaksi; admin dapat menetapkan sandi baru
+ * dari halaman Pengaturan → Pengguna (atau Akun Biro Saya), dan tetap menerima
+ * notifikasi lonceng ketika permintaan reset gagal dilayani email.
  */
 export async function forgotPasswordAction(_prev: ResetState, formData: FormData): Promise<ResetState> {
   const parsed = forgotPasswordSchema.safeParse({ email: formData.get('email') ?? '' });
@@ -105,8 +116,8 @@ export async function forgotPasswordAction(_prev: ResetState, formData: FormData
       admins.map((a) => a.id),
       {
         title: `Permintaan reset kata sandi: ${user.name}`,
-        body: `${user.email} meminta reset kata sandi, tetapi email gagal terkirim (${mailError.slice(0, 120)}). Buka Pengaturan → Email & Notifikasi untuk memperbaikinya.`,
-        link: '/dashboard/pengaturan/email',
+        body: `${user.email} meminta reset kata sandi, tetapi email gagal terkirim (${mailError.slice(0, 120)}). Tautan TIDAK ditampilkan di halaman publik — tetapkan sandi baru untuk akun ini lewat Pengaturan → Pengguna, dan lengkapi Pengaturan → Email & Notifikasi agar alur mandiri berjalan lagi.`,
+        link: '/dashboard/pengaturan/pengguna',
         type: 'WARNING',
       }
     );
@@ -116,11 +127,12 @@ export async function forgotPasswordAction(_prev: ResetState, formData: FormData
     return { ok: true, message: genericMessage };
   }
 
-  // Email gagal/belum diatur → tampilkan tautan manual (aplikasi internal) + alasan jelas
+  // Email gagal/belum diatur → JANGAN pernah mengembalikan tautan reset ke pemanggil
+  // (halaman ini publik). Pengguna diarahkan ke admin, yang dapat menetapkan sandi baru.
   return {
     ok: true,
-    message: `Tautan reset dibuat, tetapi email TIDAK terkirim: ${mailError} Gunakan tautan di bawah untuk mengganti kata sandi, dan minta admin melengkapi pengaturan email (Pengaturan → Email & Notifikasi).`,
-    fieldErrors: { manualUrl: url },
+    mailFailed: true,
+    message: `Permintaan Anda sudah tercatat, tetapi email reset tidak dapat dikirim: ${mailError} Silakan hubungi admin redaksi — admin dapat menetapkan kata sandi baru untuk akun Anda dari halaman Pengaturan → Pengguna.`,
   };
 }
 

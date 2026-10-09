@@ -31,6 +31,24 @@ async function withPage(email, password, fn) {
   }
 }
 
+/**
+ * Ambil id akun dari halaman Pengguna (dipakai untuk uji "paksa sasaran" — memastikan
+ * penegakan ada di SERVER, bukan hanya disembunyikan di UI).
+ */
+async function findUserId(page, email) {
+  const basePath = new URL(BASE).pathname.replace(/\/$/, '');
+  return page.evaluate(
+    async ([path, target]) => {
+      const res = await fetch(`${path}/dashboard/pengaturan/pengguna`, { headers: { accept: 'text/html' } });
+      const html = await res.text();
+      const row = html.split('<tr').find((r) => r.includes(target)) || '';
+      const m = /\/dashboard\/pengaturan\/pengguna\/([0-9a-f-]{36})/.exec(row);
+      return m ? m[1] : '';
+    },
+    [basePath, email]
+  );
+}
+
 const stamp = Date.now();
 const newReporter = `reporter.uji.${stamp}@newsroom.demo`;
 const newIntern = `magang.uji.${stamp}@newsroom.demo`;
@@ -227,6 +245,144 @@ try {
     const listed = await page.locator('.dtable tbody').innerText();
     check('Admin melihat akun dari beberapa biro', /Medan/.test(listed) && /Surabaya/.test(listed), 'multi-biro');
     check('menu "Akun Biro Saya" tersedia di navigasi pengaturan', (await page.locator('a:has-text("Akun Biro")').count()) > 0);
+
+    // ---------- AUDIT Okt 2026 (A-2): akun SUPER_ADMIN tidak boleh disentuh Admin ----------
+    // Dulu seorang ADMIN dapat menurunkan role + menetapkan sandi baru akun SUPER_ADMIN
+    // dari halaman ini (ambil alih akun puncak).
+    const adminRow = page.locator('.dtable tbody tr', { hasText: 'superadmin@newsroom.demo' });
+    check('akun Super Admin TIDAK muncul di daftar Akun Biro bagi Admin', (await adminRow.count()) === 0);
+    check('akun sendiri juga tidak muncul di daftar', (await page.locator('.dtable tbody tr', { hasText: 'admin@newsroom.demo' }).count()) === 0);
+
+    // Penegakan di SERVER: pakai form ubah yang ASLI (wiring client-side sungguhan), lalu
+    // alihkan id sasaran ke akun Super Admin lewat DOM — server HARUS menolak.
+    // URUTAN PENTING: isi kolom sandi lebih dulu (memicu re-render React), BARU ubah nilai
+    // hidden input `id`; kalau dibalik, React mengembalikan nilai id semula sebelum submit.
+    const targetId = await page.evaluate(async () => {
+      // Admin melihat semua pengguna di halaman Pengguna; ambil id Super Admin dari barisnya.
+      const res = await fetch('/newsroom-hub/dashboard/pengaturan/pengguna', { headers: { accept: 'text/html' } });
+      const html = await res.text();
+      const row = html.split('<tr').find((r) => r.includes('superadmin@newsroom.demo')) || '';
+      const m = /\/dashboard\/pengaturan\/pengguna\/([0-9a-f-]{36})/.exec(row);
+      return m ? m[1] : '';
+    });
+    check('id akun Super Admin terbaca untuk uji paksa', Boolean(targetId), targetId || 'tidak ditemukan');
+
+    const memberRow = page.locator('.dtable tbody tr', { hasText: 'reporter.medan@newsroom.demo' }).first();
+    if (targetId && (await memberRow.count()) > 0) {
+      await memberRow.locator('button[data-edit-member]').click();
+      await page.waitForSelector('[role="dialog"]', { timeout: 30000 });
+      await page.fill('[role="dialog"] input[name="newPassword"]', 'AmbilAlih2026!');
+      await page.evaluate((id) => {
+        const hidden = document.querySelector('[role="dialog"] input[name="id"]');
+        if (hidden) hidden.value = id;
+      }, targetId);
+      const swapped = await page.locator('[role="dialog"] input[name="id"]').inputValue();
+      check('sasaran form berhasil dialihkan ke akun Super Admin (uji paksa sah)', swapped === targetId);
+      await page.click('[role="dialog"] button:has-text("Simpan Perubahan")');
+      await page.waitForTimeout(5000);
+      const afterText = await page.locator('body').innerText();
+      check(
+        'server MENOLAK Admin yang mencoba mengubah akun Super Admin (pesan jelas)',
+        /Hanya Super Admin yang dapat mengubah akun admin/i.test(afterText),
+        (afterText.match(/Hanya Super Admin[^\n]{0,55}/) || ['(pesan tidak ditemukan)'])[0]
+      );
+      check(
+        'permintaan ditolak → dialog TIDAK ditutup sebagai sukses',
+        (await page.locator('[role="dialog"]').count()) === 1
+      );
+      await page.keyboard.press('Escape');
+    } else {
+      check('server MENOLAK Admin yang mencoba mengubah akun Super Admin (pesan jelas)', false, 'id/target tidak terbaca');
+    }
+
+    // Bukti tambahan: role akun Super Admin tetap tidak berubah di daftar Pengguna.
+    await page.goto(`${BASE}/dashboard/pengaturan/pengguna`, { waitUntil: 'domcontentloaded' });
+    const superRow = page.locator('.dtable tbody tr', { hasText: 'superadmin@newsroom.demo' }).first();
+    const superRowText = (await superRow.innerText().catch(() => '')) || '';
+    check(
+      'akun Super Admin tetap ber-role Super Admin (tidak berubah)',
+      /Super Admin/i.test(superRowText) && !/Reporter Daerah/i.test(superRowText),
+      superRowText.replace(/\s+/g, ' ').slice(0, 70)
+    );
+    check('nama akun Super Admin tidak diubah oleh percobaan tersebut', !/Diambil Alih Uji A2/.test(superRowText));
+
+    // ---------- AUDIT LANJUTAN (A-2): halaman Akun Biro hanya untuk akun BIRO ----------
+    // Dulu Admin dapat memakai form ini untuk akun role editorial/pusat (tanpa biro),
+    // padahal halaman ini untuk akun biro. Sekarang ditolak dengan pesan jelas.
+    const redakturId = await findUserId(page, 'redaktur@newsroom.demo');
+    check('id akun Redaktur (tanpa biro) terbaca untuk uji paksa', Boolean(redakturId), redakturId || 'tidak ditemukan');
+    // Kembali ke halaman AKUN BIRO (blok sebelumnya meninggalkan halaman Pengguna).
+    await page.goto(`${BASE}/dashboard/pengaturan/pengguna-biro`, { waitUntil: 'domcontentloaded' });
+    const bureauRow = page.locator('.dtable tbody tr', { hasText: 'reporter.medan@newsroom.demo' }).first();
+    if (redakturId && (await bureauRow.count()) > 0) {
+      await bureauRow.locator('button[data-edit-member]').click();
+      await page.waitForSelector('[role="dialog"]', { timeout: 30000 });
+      await page.fill('[role="dialog"] input[name="newPassword"]', 'PaksaRedaktur2026!');
+      await page.evaluate((id) => {
+        const hidden = document.querySelector('[role="dialog"] input[name="id"]');
+        if (hidden) hidden.value = id;
+      }, redakturId);
+      await page.click('[role="dialog"] button:has-text("Simpan Perubahan")');
+      await page.waitForTimeout(5000);
+      const afterText = await page.locator('body').innerText();
+      check(
+        'server MENOLAK Admin memakai form Akun Biro untuk akun role pusat (tanpa biro)',
+        /hanya untuk akun biro daerah/i.test(afterText),
+        (afterText.match(/Halaman ini hanya untuk akun biro[^\n]{0,45}/i) || ['(pesan tidak ditemukan)'])[0]
+      );
+      check('permintaan ditolak → dialog tidak ditutup sebagai sukses', (await page.locator('[role="dialog"]').count()) === 1);
+      await page.keyboard.press('Escape');
+    } else {
+      check('server MENOLAK Admin memakai form Akun Biro untuk akun role pusat (tanpa biro)', false, 'id/baris tidak terbaca');
+    }
+  });
+
+  // Bukti: sandi akun Redaktur TIDAK berubah (masih dapat masuk dengan sandi lamanya).
+  await withPage('redaktur@newsroom.demo', 'Demo123!', async () =>
+    check('sandi akun Redaktur tidak berubah oleh percobaan tersebut', true)
+  );
+
+  // ============ 5b. Akun SENDIRI tidak dikelola dari halaman Pengguna ============
+  // Akun sendiri hanya boleh diubah lewat menu Akun & Profil; peran & status sendiri tidak
+  // dapat diubah dari halaman pengelolaan (cegah menurunkan wewenang sendiri / terkunci).
+  await withPage('superadmin@newsroom.demo', 'Demo123!', async (page) => {
+    const saId = await findUserId(page, 'superadmin@newsroom.demo');
+    const redakturId = await findUserId(page, 'redaktur@newsroom.demo');
+    check('id akun Super Admin & Redaktur terbaca untuk uji akun sendiri', Boolean(saId && redakturId), `${saId ? 'sa' : '-'}/${redakturId ? 'redaktur' : '-'}`);
+    if (!saId || !redakturId) return;
+
+    // (a) Tampilan: akun sendiri diberi arahan, bukan form yang selalu gagal.
+    await page.goto(`${BASE}/dashboard/pengaturan/pengguna/${saId}`, { waitUntil: 'domcontentloaded' });
+    const note = await page.locator('body').innerText();
+    check('halaman akun sendiri menampilkan arahan ke menu Akun & Profil', /Akun & Profil/i.test(note) && /akun Anda sendiri/i.test(note));
+    check(
+      'tombol Simpan / Nonaktifkan / Hapus disembunyikan untuk akun sendiri',
+      (await page.locator('button:has-text("Simpan Perubahan")').count()) === 0 &&
+        (await page.locator('button:has-text("Nonaktifkan Akun")').count()) === 0 &&
+        (await page.locator('button:has-text("Hapus Akun")').count()) === 0
+    );
+
+    // (b) Penegakan di SERVER: pakai halaman akun LAIN (tombol simpan ada), lalu alihkan
+    // hidden id ke akun Super Admin sendiri → server HARUS menolak.
+    await page.goto(`${BASE}/dashboard/pengaturan/pengguna/${redakturId}`, { waitUntil: 'domcontentloaded' });
+    await page.evaluate((id) => {
+      const hidden = document.querySelector('input[name="id"]');
+      if (hidden) hidden.value = id;
+    }, saId);
+    await page.click('button:has-text("Simpan Perubahan")');
+    await page.waitForTimeout(5000);
+    const afterText = await page.locator('body').innerText();
+    check(
+      'server MENOLAK perubahan pada akun sendiri dari halaman kelola',
+      /akun Anda sendiri/i.test(afterText),
+      (afterText.match(/[^\n]*akun Anda sendiri[^\n]*/i) || ['(pesan tidak ditemukan)'])[0].slice(0, 70)
+    );
+
+    // (c) Bukti peran Super Admin tidak berubah.
+    await page.goto(`${BASE}/dashboard/pengaturan/pengguna`, { waitUntil: 'domcontentloaded' });
+    const row = page.locator('.dtable tbody tr', { hasText: 'superadmin@newsroom.demo' }).first();
+    const rowText = (await row.innerText().catch(() => '')) || '';
+    check('peran Super Admin tetap utuh setelah percobaan akun sendiri', /Super Admin/i.test(rowText), rowText.replace(/\s+/g, ' ').slice(0, 55));
   });
 
   // ============ 6. Role lain tidak boleh mengakses ============

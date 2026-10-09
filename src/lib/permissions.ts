@@ -168,7 +168,23 @@ export function canPublish(user: CurrentUser, news: NewsLike): boolean {
 export const canManageUsers = (u: { role: Role }) => isAdmin(u);
 export const canManageBureau = (u: { role: Role }) => isAdmin(u);
 export const canManageMaster = (u: { role: Role }) => isAdmin(u);
-export const canManageStorage = (u: { role: Role }) => u.role === 'SUPER_ADMIN';
+/**
+ * Wewenang mengelola KONFIGURASI STORAGE (kredensial penyedia penyimpanan footage).
+ *
+ * KEPUTUSAN (audit Okt 2026 — A-3): sebelumnya fungsi ini menyatakan `SUPER_ADMIN`
+ * SAJA, padahal ketiga action storage (`testStorageAction`, `saveStorageSettingsAction`,
+ * `resetStorageAction`) memakai `requireRole(['SUPER_ADMIN','ADMIN'])` — dua aturan yang
+ * berbeda, dan fungsi ini tidak pernah dipakai sama sekali (dead code). Diselaraskan ke
+ * level Admin karena: (1) ADMIN memang pengelola penuh lainnya (pengguna, biro, kategori,
+ * log audit, seluruh pool berita), (2) akun yang dipakai pemilik aplikasi sehari-hari
+ * ber-role ADMIN dan memang mengonfigurasi storage ini, (3) sejalan dengan
+ * canManageBureau/canViewAudit/canManageUsers.
+ *
+ * Fungsi ini adalah SATU-SATUNYA sumber kebenaran: dipakai halaman Storage & Integrasi,
+ * menu sidebar, dan ketiga action tersebut. Bila kelak ingin dikunci hanya untuk Super
+ * Admin, cukup ubah baris ini menjadi `u.role === 'SUPER_ADMIN'`.
+ */
+export const canManageStorage = (u: { role: Role }) => isAdmin(u);
 export const canViewAudit = (u: { role: Role }) => isAdmin(u);
 export const canCreateAnnouncement = (u: { role: Role }) =>
   isAdmin(u) || u.role === 'REDAKTUR' || u.role === 'PRODUSER_PUSAT' || u.role === 'PRODUSER_DAERAH';
@@ -199,19 +215,102 @@ export function bureauAssignableRoles(actor: { role: Role }): Role[] {
 }
 
 /**
- * Batas akses Produser Daerah terhadap satu akun sasaran.
- * Semua syarat harus benar: akun ada di biro yang sama, role-nya termasuk yang boleh
- * dikelola, dan bukan dirinya sendiri.
+ * ============================================================================
+ * ATURAN PENGELOLAAN AKUN — SATU SUMBER KEBENARAN
+ * ============================================================================
+ *
+ * Dipakai oleh SEMUA jalur yang dapat mengubah akun orang lain:
+ *  - halaman Pengguna & Hak Akses  (scope 'global')
+ *  - halaman Akun Biro Saya        (scope 'bureau')
+ *
+ * Kenapa dijadikan satu fungsi: temuan audit A-2 (Okt 2026) terjadi karena aturan ini
+ * ditulis ULANG secara terpisah di tiap action — jalur "Akun Biro" tidak memiliki
+ * pengaman "hanya Super Admin boleh menyentuh akun admin", sehingga seorang ADMIN dapat
+ * menurunkan role + menetapkan sandi baru akun SUPER_ADMIN (ambil alih akun puncak).
+ * JANGAN menulis ulang aturan ini di action mana pun; panggil fungsi ini.
+ */
+export type AccountScope = 'global' | 'bureau';
+
+export type AccountGuardResult =
+  | { ok: true }
+  | { ok: false; reason: string; fieldErrors?: Record<string, string> };
+
+/** Pesan tunggal untuk penolakan akun admin (dipakai juga oleh uji regresi). */
+export const ACCOUNT_ADMIN_PROTECTED_MSG = 'Hanya Super Admin yang dapat mengubah akun admin/super admin.';
+/** Pesan tunggal untuk penolakan akun sendiri. */
+export const ACCOUNT_SELF_MSG = 'Anda tidak dapat mengubah akun Anda sendiri dari halaman ini.';
+
+/**
+ * Bolehkah `actor` mengelola akun `target`?
+ *
+ * - Tak seorang pun mengelola akunnya SENDIRI dari halaman pengelolaan (cegah terkunci
+ *   sendiri maupun menaikkan/menurunkan wewenang sendiri).
+ * - Akun ADMIN & SUPER_ADMIN hanya boleh disentuh SUPER_ADMIN (inti perbaikan A-2).
+ * - SUPER_ADMIN: boleh mengelola akun siapa pun selain dirinya.
+ * - ADMIN:
+ *     scope 'global' → boleh mengelola seluruh akun NON-admin (termasuk role editorial/pusat);
+ *     scope 'bureau' → HANYA akun yang memang termasuk role yang boleh dikelola pada
+ *                      halaman akun biro (`bureauAssignableRoles`), yaitu akun ber-biro.
+ * - PRODUSER_DAERAH (scope 'bureau'): hanya anggota biro-nya sendiri dengan role yang diizinkan.
+ * - Role lain: tidak boleh mengelola akun siapa pun.
+ *
+ * CATATAN: fungsi ini MURNI (tanpa akses database) supaya aman dipakai di komponen.
+ * Aturan yang butuh data (mis. "Super Admin aktif terakhir") ada di `lib/account-guard.ts`.
+ */
+export function canManageAccount(
+  actor: { id: string; role: Role; bureauId?: string | null },
+  target: { id: string; role: Role; bureauId?: string | null },
+  scope: AccountScope = 'global'
+): AccountGuardResult {
+  if (target.id === actor.id) return { ok: false, reason: ACCOUNT_SELF_MSG };
+  if (isAdmin(target) && !isSuperAdmin(actor)) {
+    return { ok: false, reason: ACCOUNT_ADMIN_PROTECTED_MSG };
+  }
+  if (isSuperAdmin(actor)) return { ok: true };
+
+  if (scope === 'bureau') {
+    const targetBureauId = target.bureauId ?? null;
+    if (actor.role === 'ADMIN') {
+      // Halaman akun biro hanya untuk akun biro — Admin tetap dapat mengelola role
+      // editorial/pusat lewat halaman Pengguna (scope 'global'), bukan lewat form biro.
+      if (!targetBureauId) {
+        return { ok: false, reason: 'Halaman ini hanya untuk akun biro daerah. Gunakan halaman Pengguna & Hak Akses.' };
+      }
+      if (!bureauAssignableRoles(actor).includes(target.role)) {
+        return {
+          ok: false,
+          reason: 'Role akun tersebut bukan role akun biro yang dapat dikelola dari halaman ini.',
+          fieldErrors: { role: 'Role tidak dapat dikelola dari halaman akun biro' },
+        };
+      }
+      return { ok: true };
+    }
+    if (actor.role !== 'PRODUSER_DAERAH') {
+      return { ok: false, reason: 'Anda tidak berhak mengelola akun pengguna.' };
+    }
+    if (!actor.bureauId || targetBureauId !== actor.bureauId) {
+      return { ok: false, reason: 'Anda hanya dapat mengelola akun pada biro Anda sendiri.' };
+    }
+    if (!BUREAU_MANAGED_ROLES.includes(target.role)) {
+      return { ok: false, reason: 'Role akun tersebut tidak dapat Anda kelola.' };
+    }
+    return { ok: true };
+  }
+
+  // scope 'global' — hanya ADMIN yang sampai di sini (SUPER_ADMIN sudah keluar di atas).
+  if (actor.role !== 'ADMIN') return { ok: false, reason: 'Anda tidak berhak mengelola akun pengguna.' };
+  return { ok: true };
+}
+
+/**
+ * Pembungkus boolean untuk pemakaian di tampilan (mis. menyembunyikan tombol).
+ * Delegasi ke `canManageAccount` agar tidak pernah berbeda aturan.
  */
 export function canManageBureauMember(
   actor: { id: string; role: Role; bureauId: string | null },
   target: { id: string; role: Role; bureauId: string | null }
 ): boolean {
-  if (isAdmin(actor)) return true;
-  if (actor.role !== 'PRODUSER_DAERAH') return false;
-  if (!actor.bureauId || target.bureauId !== actor.bureauId) return false;
-  if (target.id === actor.id) return false;
-  return BUREAU_MANAGED_ROLES.includes(target.role);
+  return canManageAccount(actor, target, 'bureau').ok;
 }
 
 /**

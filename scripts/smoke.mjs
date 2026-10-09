@@ -104,6 +104,22 @@ try {
   );
   check('tautan "Lupa kata sandi?" tetap tersedia', (await page.locator('[data-forgot-link]').count()) > 0);
 
+  // Fitur lihat/sembunyikan sandi (ikon mata) pada form login.
+  const pwToggle = page.locator('[data-toggle-password]');
+  check('tombol mata tersedia di kolom sandi', (await pwToggle.count()) === 1);
+  check('sandi tersembunyi secara bawaan (type=password)', (await page.locator('#password').getAttribute('type')) === 'password');
+  check('tombol mata punya nama untuk pembaca layar', (await pwToggle.getAttribute('aria-label')) === 'Lihat sandi', await pwToggle.getAttribute('aria-label'));
+  await page.fill('#password', 'ContohSandi123!');
+  await pwToggle.click();
+  await page.waitForTimeout(200);
+  check('klik ikon mata menampilkan sandi (type=text)', (await page.locator('#password').getAttribute('type')) === 'text');
+  check('nilai sandi tetap utuh saat ditampilkan', (await page.inputValue('#password')) === 'ContohSandi123!');
+  check('klik ikon TIDAK mengirim form (tetap di /login)', page.url().includes('/login'), page.url().split('/newsroom-hub')[1] ?? page.url());
+  await pwToggle.click();
+  await page.waitForTimeout(200);
+  check('klik kedua menyembunyikan kembali (type=password)', (await page.locator('#password').getAttribute('type')) === 'password');
+  await page.fill('#password', '');
+
   current = 'auth';
   await login(page, 'reporter.pusat@newsroom.demo');
   check('login reporter pusat berhasil', page.url().includes('/dashboard'));

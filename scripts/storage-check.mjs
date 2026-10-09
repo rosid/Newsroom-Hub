@@ -229,6 +229,81 @@ try {
     'konfigurasi S3 tanpa bucket ditolak dengan pesan jelas',
     (await page.locator('text=wajib diisi untuk mode S3-compatible').count()) > 0
   );
+
+  // ============ 10. AUDIT Okt 2026 (A-3): wewenang storage ditegakkan SERVER ============
+  // Sebelumnya helper canManageStorage menyatakan Super Admin saja tetapi ketiga action
+  // memakai requireRole(['SUPER_ADMIN','ADMIN']) — tidak konsisten. Sekarang halaman, menu,
+  // dan action memakai canManageStorage yang sama (Admin & Super Admin).
+  // (a) Admin tetap boleh membuka halaman — dibuktikan di langkah 1 (form konfigurasi tampil).
+  check(
+    'Admin dapat membuka halaman Storage & Integrasi (wewenang diselaraskan)',
+    (await page.locator('#s-endpoint').count()) > 0 || (await page.locator('[data-storage-mode]').count()) > 0
+  );
+  // (b) Role lain ditolak — bukan hanya menunya disembunyikan.
+  const deniedBrowser = await chromium.launch();
+  try {
+    const denied = await deniedBrowser.newPage({ viewport: { width: 1280, height: 900 } });
+    await denied.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await denied.fill('#email', 'reporter.medan@newsroom.demo');
+    await denied.fill('#password', 'Demo123!');
+    await denied.click('button[type="submit"]');
+    await denied.waitForURL(/\/dashboard/, { timeout: 60000 });
+    await denied.goto(`${BASE}/dashboard/pengaturan/integrasi`, { waitUntil: 'domcontentloaded' });
+    check(
+      'Reporter Daerah tidak dapat membuka konfigurasi storage (halaman menolak)',
+      (await denied.locator('text=Akses ditolak').count()) > 0 && (await denied.locator('#s-endpoint').count()) === 0,
+      denied.url().split('/newsroom-hub')[1] ?? denied.url()
+    );
+    check(
+      'menu Storage & Integrasi tidak ditawarkan di sidebar Reporter Daerah',
+      (await denied.locator('a:has-text("Storage & Integrasi")').count()) === 0
+    );
+  } finally {
+    await deniedBrowser.close();
+  }
+
+  // ============ 11. AUDIT Okt 2026 (E-1): SVG tidak dijalankan sebagai dokumen aktif ====
+  // SVG yang diunggah harus disajikan dengan CSP sandbox (tanpa skrip) supaya tidak bisa
+  // bertindak atas nama sesi pengguna saat dibuka langsung di tab; gambar biasa tetap normal.
+  const svg = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><script>document.title="XSS-UJI";</script></svg>',
+    'utf8'
+  );
+  const svgUp = await page.request.post(`${BASE}/api/media/upload`, {
+    multipart: { files: { name: 'uji-svg.svg', mimeType: 'image/svg+xml', buffer: svg } },
+  });
+  const svgData = await svgUp.json();
+  check('SVG dapat diunggah (jenis gambar yang diizinkan tetap berfungsi)', svgUp.status() === 200 && svgData.ok, `HTTP ${svgUp.status()}`);
+  const svgKey = svgData.assets?.[0]?.storageKey ?? '';
+  const svgRes = await page.request.get(`${BASE}/api/media/${svgKey}`);
+  const svgHeaders = svgRes.headers();
+  check('SVG disajikan sebagai image/svg+xml', (svgHeaders['content-type'] || '').includes('image/svg+xml'), svgHeaders['content-type']);
+  check(
+    'SVG diberi Content-Security-Policy sandbox (audit E-1)',
+    /sandbox/.test(svgHeaders['content-security-policy'] || ''),
+    svgHeaders['content-security-policy'] || 'tidak ada CSP'
+  );
+  check('SVG tetap dikirim dengan nosniff', (svgHeaders['x-content-type-options'] || '') === 'nosniff');
+  const pngRes = await page.request.get(`${BASE}/api/media/${localKey}`);
+  const pngHeaders = pngRes.headers();
+  check(
+    'gambar biasa (PNG) tidak diberi CSP sandbox — tampilan tetap normal',
+    !/sandbox/.test(pngHeaders['content-security-policy'] || ''),
+    pngHeaders['content-security-policy'] || 'tanpa CSP'
+  );
+  if (svgKey) {
+    const txt = Buffer.from('uji berkas non-gambar', 'utf8');
+    const txtUp = await page.request.post(`${BASE}/api/media/upload`, {
+      multipart: { files: { name: 'uji-dokumen.txt', mimeType: 'text/plain', buffer: txt } },
+    });
+    const txtKey = (await txtUp.json())?.assets?.[0]?.storageKey ?? '';
+    const txtRes = await page.request.get(`${BASE}/api/media/${txtKey}`);
+    check(
+      'berkas non-gambar tetap disandbox (perilaku lama tidak berubah)',
+      /sandbox/.test(txtRes.headers()['content-security-policy'] || ''),
+      txtRes.headers()['content-security-policy'] || 'tidak ada CSP'
+    );
+  }
 } catch (e) {
   check(`exception: ${e.message}`, false);
 } finally {

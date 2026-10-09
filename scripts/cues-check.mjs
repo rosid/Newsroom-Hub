@@ -124,6 +124,19 @@ try {
     .evaluate((el) => getComputedStyle(el).color);
   check('chip penanda tampil berwarna (beda dari teks biasa)', chipColor !== plainColor, `${chipColor} vs ${plainColor}`);
 
+  // =====================================================================================
+  // PENGERASAN CSS (perbaikan audit Tahap 2 — XSS-1) lewat jalur NYATA (editor → server → render).
+  // Payload overlay penuh layar & beacon ditaruh di naskah, lalu dibuktikan HILANG di halaman detail.
+  // =====================================================================================
+  const CSS_PAYLOAD =
+    '<p><span style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:#fff;z-index:99999">Login palsu uji XSS</span>' +
+    '<span style="background-image:url(https://jahat.example/beacon.png)">beacon</span>' +
+    '<span style="color:#d61f2c;font-weight:bold">warna wajar</span></p>';
+  await page.evaluate((payload) => {
+    const input = document.querySelector('input[name="script"]');
+    input.value = `${input.value}${payload}`;
+  }, CSS_PAYLOAD);
+
   // Simpan berita
   await page.fill('#title', title);
   await page.selectOption('#category', { label: 'Pemerintahan' });
@@ -148,6 +161,23 @@ try {
     .first()
     .evaluate((el) => getComputedStyle(el).color);
   check('chip berwarna juga di halaman detail', Boolean(detailChipColor), detailChipColor);
+
+  // --- XSS-1: CSS aktif dari naskah tidak boleh bertahan di halaman yang dirender ---
+  check(
+    'CSS overlay (position/top/left/width/height/z-index) dibuang dari naskah tersimpan',
+    !/position\s*:|z-index\s*:|top\s*:|left\s*:|100vw|100vh/i.test(detailHtml),
+    (detailHtml.match(/position[^"]{0,40}|z-index[^"]{0,20}/i) ?? ['tidak ada'])[0]
+  );
+  check(
+    'beacon background-image:url() dibuang dari naskah tersimpan',
+    !/background-image|url\(/i.test(detailHtml),
+    (detailHtml.match(/background-image[^"]{0,50}/i) ?? ['tidak ada'])[0]
+  );
+  check(
+    'properti CSS wajar (warna/tebal) tetap dipertahankan',
+    /style="[^"]*color:\s*#d61f2c/i.test(detailHtml) && /font-weight/i.test(detailHtml),
+    (detailHtml.match(/style="[^"]*#d61f2c[^"]*"/i) ?? ['tidak ditemukan'])[0]
+  );
 
   // Halaman ubah naskah: penanda kembali muncul di editor (bisa diedit)
   await page.goto(`${BASE}/dashboard/tabulasi/berita/${newsId}/edit`, { waitUntil: 'domcontentloaded' });

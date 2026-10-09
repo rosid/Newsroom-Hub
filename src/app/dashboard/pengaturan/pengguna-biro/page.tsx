@@ -44,7 +44,14 @@ export default async function BureauUsersPage() {
     : [];
 
   const where = admin
-    ? { bureauId: { not: null } }
+    ? {
+        bureauId: { not: null },
+        // Akun sendiri tidak dikelola dari halaman ini, dan akun ADMIN/SUPER_ADMIN
+        // hanya boleh dikelola Super Admin (audit A-2) — supaya tidak ada tombol
+        // yang sudah pasti ditolak server.
+        id: { not: user.id },
+        ...(user.role === 'SUPER_ADMIN' ? {} : { role: { notIn: ['ADMIN', 'SUPER_ADMIN'] as Role[] } }),
+      }
     : { bureauId: user.bureauId ?? '__none__', role: { in: BUREAU_MANAGED_ROLES } };
 
   const rows = await prisma.user.findMany({

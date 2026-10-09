@@ -23,7 +23,12 @@ npx tsx scripts/airing-unit.ts || exit 1
 export BASE_URL="http://localhost:$PORT/newsroom-hub"
 NODE_ENV=production COOKIE_SECURE=false PORT="$PORT" node server.js > /tmp/newsroom-airing-server.log 2>&1 &
 SRV=$!
-trap 'kill $SRV 2>/dev/null' EXIT
+# PENTING (perbaikan audit Okt 2026): cache Setting di .next/cache/fetch-cache IKUT
+# ter-publish. Uji ini memakai SALINAN DB (yang Setting-nya sengaja diubah), jadi bila
+# cache dibiarkan, aplikasi LIVE sempat memakai Setting dari DB UJI (pernah terjadi:
+# halaman lupa-password menganggap email "sudah dikonfigurasi"). Karena itu cache
+# dibersihkan lagi saat keluar.
+trap 'kill $SRV 2>/dev/null; rm -rf .next/cache/fetch-cache' EXIT
 
 for i in $(seq 1 60); do
   code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/login")
