@@ -1,0 +1,8 @@
+[
+  { "table": "News", "column": "airedOnair", "sql": "BOOLEAN NOT NULL DEFAULT false" },
+  { "table": "News", "column": "airedOnairAt", "sql": "DATETIME" },
+  { "table": "News", "column": "airedOnairById", "sql": "TEXT" },
+  { "table": "News", "column": "airedMedsos", "sql": "BOOLEAN NOT NULL DEFAULT false" },
+  { "table": "News", "column": "airedMedsosAt", "sql": "DATETIME" },
+  { "table": "News", "column": "airedMedsosById", "sql": "TEXT" }
+]

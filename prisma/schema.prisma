@@ -1,0 +1,332 @@
+// GarudaTV Newsroom Hub — Prisma Schema
+// Database: SQLite (default). Kompatibel PostgreSQL: ubah provider menjadi
+// "postgresql" + url connection string (seluruh tipe di bawah kompatibel).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  // Diisi dari environment (lihat .env / .env.example). Path relatif diselesaikan
+  // terhadap folder prisma. Bisa di-override untuk pengujian dengan DB terpisah.
+  url      = env("DATABASE_URL")
+}
+
+// ===================== ENUM =====================
+
+enum Role {
+  SUPER_ADMIN // operator sistem (semua akses + master pengaturan)
+  ADMIN // admin redaksi (manajemen user/biro/pengumuman, monitoring semua pool)
+  REDAKTUR // redaktur pusat (kurasi + siarkan berita pool pusat)
+  PRODUSER_PUSAT // produser pusat (pool pusat saja)
+  REPORTER_PUSAT // reporter pusat (kirim berita pusat)
+  PRODUSER_DAERAH // produser biro (pool biro sendiri + pool pusat)
+  REPORTER_DAERAH // reporter biro
+  KONTRIBUTOR // kontributor biro (kirim berita)
+  MAGANG // peserta magang (hanya kiriman sendiri)
+  KOORDINATOR_LIPUTAN // koordinator liputan (hak akses setara Produser Pusat)
+  KOORDINATOR_DAERAH // koordinator biro daerah (hak akses setara Produser Pusat)
+}
+
+enum Pool {
+  PUSAT
+  DAERAH
+}
+
+enum NewsStatus {
+  DRAFT // masih disusun reporter
+  PENDING // sudah dikirim, menunggu validasi produser
+  REVISION // dikembalikan untuk diperbaiki
+  VERIFIED // lolos validasi (masuk tabulasi pool asal)
+  REJECTED // ditolak
+  PUBLISHED // telah disiarkan
+}
+
+enum NewsKind {
+  REGULAR
+  BREAKING
+}
+
+enum MediaType {
+  FOOTAGE
+  IMAGE
+}
+
+enum AnnouncementPriority {
+  NORMAL
+  PENTING
+  URGENT
+}
+
+enum NotifType {
+  INFO
+  SUCCESS
+  WARNING
+  DANGER
+}
+
+// ===================== MASTER =====================
+
+model Bureau {
+  id        String   @id
+  code      String   @unique
+  name      String
+  region    String // provinsi / wilayah
+  city      String?
+  address   String?
+  phone     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  users     User[]
+  news      News[]
+  announcements Announcement[]
+}
+
+model Category {
+  id       String  @id
+  name     String  @unique
+  color    String  @default("#64748b")
+  sortOrder Int    @default(0)
+  isActive Boolean @default(true)
+}
+
+model Setting {
+  key       String   @id
+  value     String // JSON
+  updatedAt DateTime @updatedAt
+}
+
+// ===================== USER =====================
+
+model User {
+  id             String    @id
+  name           String
+  email          String    @unique
+  passwordHash   String
+  role           Role
+  bureauId       String?
+  phone          String?
+  jobTitle       String?
+  avatarUrl      String?
+  isActive       Boolean   @default(true)
+  mustChangePass Boolean   @default(false)
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  bureau       Bureau? @relation(fields: [bureauId], references: [id], onDelete: SetNull)
+  news         News[]  @relation("NewsAuthor")
+  notifications Notification[]
+  auditLogs    AuditLog[]
+  convAsP1     Conversation[] @relation("ConvP1")
+  convAsP2     Conversation[] @relation("ConvP2")
+  messages     Message[]      @relation("MessageSender")
+  passwordResets PasswordReset[]
+
+  @@index([role])
+  @@index([bureauId])
+}
+
+// ===================== BERITA =====================
+
+model News {
+  id         String     @id
+  code       String     @unique // nomor berita, mis. NB-20261006-0007
+  title      String
+  script     String // naskah (HTML dari rich text editor)
+  summary    String     @default("")
+  category   String     @default("Umum")
+  kind       NewsKind   @default(REGULAR)
+  status     NewsStatus @default(DRAFT)
+  originPool Pool       @default(PUSAT)
+
+  authorId      String
+  authorBureauId String?
+  authorRole    Role
+
+  // lokasi & geo-tagging
+  location  String  @default("")
+  province  String  @default("")
+  city      String  @default("")
+  latitude  Float?
+  longitude Float?
+
+  tags String @default("[]") // JSON array of string
+
+  // alur editorial
+  isPushedToCenter Boolean   @default(false)
+  pushedAt         DateTime?
+  pushedById       String?
+  isNational       Boolean   @default(false)
+  reviewerNote     String    @default("")
+  reviewedById     String?
+  reviewedAt       DateTime?
+  publishedAt      DateTime?
+  publishedById    String?
+
+  // Tayang per kanal penyiaran: ONAIR (siaran TV) & MEDSOS (sosial media).
+  // Status berita menjadi PUBLISHED bila salah satu kanal sudah tayang.
+  airedOnair      Boolean   @default(false)
+  airedOnairAt    DateTime?
+  airedOnairById  String?
+  airedMedsos     Boolean   @default(false)
+  airedMedsosAt   DateTime?
+  airedMedsosById String?
+
+  submittedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  author   User  @relation("NewsAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  bureau   Bureau? @relation(fields: [authorBureauId], references: [id], onDelete: SetNull)
+  media    MediaAsset[]
+  logs     NewsLog[]
+
+  @@index([status])
+  @@index([originPool])
+  @@index([authorBureauId])
+  @@index([createdAt])
+  @@index([isPushedToCenter])
+  @@index([airedOnair])
+  @@index([airedMedsos])
+}
+
+model MediaAsset {
+  id         String    @id
+  newsId     String
+  type       MediaType
+  storageKey String
+  url        String // URL final (bunny) atau path relatif driver lokal
+  filename   String
+  mimeType   String
+  size       Int
+  caption    String    @default("")
+  uploadedById String?
+  createdAt  DateTime  @default(now())
+
+  news News @relation(fields: [newsId], references: [id], onDelete: Cascade)
+
+  @@index([newsId])
+}
+
+model NewsLog {
+  id         String      @id
+  newsId     String
+  fromStatus NewsStatus?
+  toStatus   NewsStatus
+  actorId    String
+  actorName  String
+  note       String      @default("")
+  createdAt  DateTime    @default(now())
+
+  news News @relation(fields: [newsId], references: [id], onDelete: Cascade)
+
+  @@index([newsId])
+}
+
+// ===================== PENGUMUMAN & NOTIFIKASI =====================
+
+model Announcement {
+  id           String               @id
+  title        String
+  body         String // HTML
+  priority     AnnouncementPriority @default(NORMAL)
+  audience     String               @default("ALL") // ALL | ROLE:<ROLE> | POOL:PUSAT | POOL:DAERAH
+  targetBureauId String?
+  isActive     Boolean              @default(true)
+  createdById  String
+  createdByName String
+  createdAt    DateTime             @default(now())
+  expiresAt    DateTime?
+
+  bureau Bureau? @relation(fields: [targetBureauId], references: [id], onDelete: SetNull)
+
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String    @id
+  userId    String
+  title     String
+  body      String    @default("")
+  link      String    @default("")
+  type      NotifType @default(INFO)
+  isRead    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+}
+
+model AuditLog {
+  id        String   @id
+  actorId   String?
+  actorName String
+  actorRole String
+  action    String
+  entity    String   @default("")
+  entityId  String   @default("")
+  meta      String   @default("")
+  ip        String   @default("")
+  createdAt DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([action])
+}
+
+// ===================== CHAT (klaster terbatas) =====================
+
+model Conversation {
+  id             String   @id
+  participant1Id String
+  participant2Id String
+  lastMessageAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  participant1 User      @relation("ConvP1", fields: [participant1Id], references: [id], onDelete: Cascade)
+  participant2 User      @relation("ConvP2", fields: [participant2Id], references: [id], onDelete: Cascade)
+  messages     Message[]
+
+  @@unique([participant1Id, participant2Id])
+  @@index([lastMessageAt])
+}
+
+model Message {
+  id             String    @id
+  conversationId String
+  senderId       String
+  // Isi pesan: TEKS BIASA + emoticon (tanpa HTML/gambar). Disimpan apa adanya setelah
+  // tag HTML dibuang, sehingga aman dirender sebagai teks (bukan HTML).
+  body           String
+  isRead         Boolean   @default(false)
+  editedAt       DateTime?
+  createdAt      DateTime  @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+// ===================== RESET KATA SANDI =====================
+
+model PasswordReset {
+  id        String    @id
+  userId    String
+  // Token TIDAK disimpan apa adanya: hanya hash SHA-256 dari token yang dikirim via email.
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  requestIp String    @default("")
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}

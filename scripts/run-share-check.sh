@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Uji fitur unduh materi + tautan berbagi tamu pada SALINAN database (/tmp):
+#   - unit token (scripts/share-unit.ts)
+#   - server produksi + scripts/share-check.mjs (newsroom & akses tamu tanpa login)
+#
+#   bash scripts/run-share-check.sh [PORT]
+set -u
+cd "$(dirname "$0")/.." || exit 1
+PORT="${1:-3987}"
+TESTSRC=/tmp/newsroom-share
+TESTDB="$TESTSRC/newsroom.db"
+
+rm -rf "$TESTSRC"
+mkdir -p "$TESTSRC"
+cp prisma/newsroom.db "$TESTDB" || { echo "gagal menyalin database"; exit 1; }
+echo "DB uji: $TESTDB"
+# Bersihkan cache settings di disk agar proses uji tidak membaca nilai lama
+rm -rf .next/cache/fetch-cache
+# WAJIB: paksa storage lokal agar uji tidak menulis ke storage produksi pengguna
+export DATABASE_URL="file:$TESTDB"
+# Folder unggahan terpisah agar tidak mengotori uploads/ aplikasi
+export MEDIA_UPLOAD_DIR="$TESTSRC/uploads"
+npx tsx scripts/test-db-prepare.ts || exit 1
+
+echo "=== Uji unit token berbagi ==="
+npx tsx scripts/share-unit.ts || exit 1
+
+DATABASE_URL="file:$TESTDB" MEDIA_UPLOAD_DIR="$TESTSRC/uploads" NODE_ENV=production COOKIE_SECURE=false PORT="$PORT" node server.js > /tmp/newsroom-share-server.log 2>&1 &
+SRV=$!
+trap 'kill $SRV 2>/dev/null' EXIT
+
+export BASE_URL="http://localhost:$PORT/newsroom-hub"
+for i in $(seq 1 60); do
+  code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/login")
+  if [ "$code" = "200" ]; then echo "server siap setelah ${i}s"; break; fi
+  sleep 1
+done
+
+# Penjaga: pastikan aplikasi melihat PENYIMPANAN LOKAL sebelum uji tulis dijalankan.
+BASE_URL="$BASE_URL" node scripts/assert-test-storage.mjs || exit 1
+
+echo
+echo "=== Uji integrasi (newsroom + tamu) ==="
+BASE_URL="http://localhost:$PORT/newsroom-hub" node scripts/share-check.mjs
+STATUS=$?
+
+echo "--- error pada log server ---"
+grep -iE "error|unhandled|exception" /tmp/newsroom-share-server.log | head -8 || true
+
+exit $STATUS

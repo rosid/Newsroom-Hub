@@ -1,0 +1,32 @@
+# ===== Dependensi & hasil build =====
+node_modules
+.next
+out
+*.tsbuildinfo
+next-env.d.ts
+
+# ===== RAHASIA & FILE SENSITIF (jangan pernah di-commit) =====
+.env
+.env.local
+.env.*.local
+# Secret sesi yang dibuat otomatis saat runtime (kunci enkripsi kredensial storage)
+.session-secret
+# Token proxy unggah media platform
+.vibecoder-media-token
+
+# ===== Database (berisi hash sandi & data pengguna) =====
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-wal
+prisma/*.db-shm
+*.sqlite
+*.sqlite3
+
+# ===== Unggahan & artefak uji =====
+uploads/*
+!uploads/.gitkeep
+scripts/fixture-berita.png
+
+# ===== Lain-lain =====
+*.log
+.DS_Store
