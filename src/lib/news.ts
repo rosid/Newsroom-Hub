@@ -5,6 +5,7 @@ import type { CurrentUser } from './session';
 import { endOfDay, startOfDay, parseDateRange, parseTags, type DateRange } from './utils';
 import { mediaSrc } from './storage';
 import { getActiveAnnouncementsFor } from './announcements';
+import { isNewsKind } from './news-kinds';
 
 export type TabKey = PoolTab['key'];
 
@@ -49,7 +50,7 @@ export function tabWhere(user: CurrentUser, tab: TabKey, filters: TabulasiFilter
   if (filters.status && NEWS_STATUSES.includes(filters.status as NewsStatus)) {
     parts.push({ status: filters.status as NewsStatus });
   }
-  if (filters.kind && ['REGULAR', 'BREAKING'].includes(filters.kind)) {
+  if (filters.kind && isNewsKind(filters.kind)) {
     parts.push({ kind: filters.kind as NewsKind });
   }
   if (filters.category) parts.push({ category: filters.category });
@@ -116,6 +117,79 @@ export async function getTabulation(
     }),
   ]);
   return { items, total, pages: Math.max(1, Math.ceil(total / perPage)), page: safePage, perPage };
+}
+
+// ===================== LISTING BERITA (berita biro yang didorong ke pusat) =====================
+
+/**
+ * Satu kelompok berita untuk halaman Listing Berita (dikelompokkan per biro).
+ * `bureauName`/`bureauCode` null = berita tanpa biro (mis. kiriman pusat) — jaga-jaga saja,
+ * karena daftar ini memang hanya berisi berita ber-biro.
+ */
+export type ListingBureauGroup = {
+  bureauId: string;
+  bureauName: string;
+  bureauCode: string | null;
+  items: NewsListItem[];
+};
+
+/**
+ * Berita dari BIRO yang DIDORONG KE PUSAT (isPushedToCenter), dikelompokkan per biro.
+ *
+ * Kenapa lewat `tabWhere(..., 'pusat', ...)` dan bukan query baru: halaman lain memakai aturan
+ * pool yang ketat (`newsVisibilityWhere`), dan aturan itu TIDAK boleh dilonggarkan di sini.
+ * Akibatnya cakupan mengikuti role secara otomatis:
+ *   - Admin/Super Admin     : seluruh biro
+ *   - Produser/Reporter Pusat, Koordinator: seluruh biro (pool pusat + berita yang didorong)
+ *   - Produser Daerah       : biro sendiri + berita biro lain yang VERIFIED/PUBLISHED
+ * Urutan: diurutkan per biro (ALFABETIS) lalu waktu kirim terbaru di dalam tiap biro.
+ */
+export async function getListingByBureau(
+  user: CurrentUser,
+  filters: Omit<TabulasiFilters, 'bureauId' | 'status' | 'province' | 'tag'>,
+  perBureau = 200
+): Promise<{ groups: ListingBureauGroup[]; total: number }> {
+  const where: Prisma.NewsWhereInput = {
+    AND: [
+      tabWhere(user, 'pusat', { ...filters, bureauId: undefined, status: undefined, province: undefined, tag: undefined }),
+      // HANYA berita biro yang didorong ke pusat (bukan seluruh pool pusat).
+      { isPushedToCenter: true },
+      { originPool: Pool.DAERAH },
+      { authorBureauId: { not: null } },
+    ],
+  };
+
+  const items = await prisma.news.findMany({
+    where,
+    include: {
+      author: { select: { id: true, name: true, role: true } },
+      bureau: { select: { id: true, name: true, code: true } },
+      // Tabel Listing tidak menampilkan lampiran, tetapi NewsListItem mensyaratkan field ini.
+      media: { select: { id: true, storageKey: true, url: true, mimeType: true, filename: true, size: true } },
+      _count: { select: { media: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 5000,
+  });
+
+  const byBureau = new Map<string, ListingBureauGroup>();
+  for (const n of items) {
+    const id = n.bureau?.id ?? '__tanpa-biro__';
+    if (!byBureau.has(id)) {
+      byBureau.set(id, {
+        bureauId: id,
+        bureauName: n.bureau?.name ?? 'Tanpa Biro',
+        bureauCode: n.bureau?.code ?? null,
+        items: [],
+      });
+    }
+    const group = byBureau.get(id)!;
+    if (group.items.length < perBureau) group.items.push(n);
+  }
+
+  // Urut abjad nama biro agar posisinya stabil antar-pemuatan
+  const groups = [...byBureau.values()].sort((a, b) => a.bureauName.localeCompare(b.bureauName, 'id'));
+  return { groups, total: items.length };
 }
 
 // ===================== TAMPILAN KARTU (grid 4 kolom + load more) =====================

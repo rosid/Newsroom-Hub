@@ -181,7 +181,7 @@ try {
   await page.fill('#longitude', '106.83875');
   await Promise.all([
     page.waitForURL(/\/dashboard\/tabulasi\/berita\//, { timeout: 60000 }),
-    page.click('button:has-text("Kirim ke Produser")'),
+    page.click('button:has-text("Kirim Berita")'),
   ]);
   const newsUrl = page.url();
   check('berita uji terkirim dengan lampiran', /\/dashboard\/tabulasi\/berita\//.test(newsUrl), newsUrl.split('/').pop());

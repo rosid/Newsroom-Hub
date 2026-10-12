@@ -44,19 +44,30 @@ Alur status: `DRAFT → PENDING → VERIFIED → PUBLISHED` (plus `REVISION` dan
   **statistik ringkas** (Berita Hari Ini, Menunggu Persetujuan, Telah Disiarkan, Breaking News),
   **filter tanggal** (Hari Ini / 7 Hari / 30 Hari / Bulan Ini / Kustom / Semua) + filter status, kategori,
   jenis, provinsi, biro, dan pencarian; **ekspor CSV**.
+- **Listing Berita** (menu tersendiri) — daftar berita dari **biro yang didorong ke pusat**,
+  **dikelompokkan per biro** dengan tabel yang bisa **dilipat (accordion)**. Kolom:
+  **No. Berita | Judul | Jenis | Kategori | Sumber | Waktu Kirim | Buka** (Sumber = nama reporter).
+  Dilengkapi **pencarian** (judul/nomor/lokasi/nama reporter), filter kategori & jenis, serta
+  **filter tanggal** (Hari Ini / 7 Hari / 30 Hari / Bulan Ini / **kustom** dari–sampai).
+  **Akses**: semua role KECUALI Reporter Daerah, Reporter Pusat, Kontributor, dan Magang
+  (menu disembunyikan **dan** halaman menolak di server). Cakupan data mengikuti aturan pool
+  yang berlaku — Produser Daerah melihat biro sendiri + berita biro lain yang sudah
+  Terverifikasi/Disiarkan, sedangkan role pusat & Admin melihat seluruh biro.
+
 - **Dua opsi tampilan tabulasi** (tombol Daftar / Kartu, filter tetap terbawa saat berganti tampilan):
   - **Daftar** — tabel padat ala ruang redaksi dengan pagination nomor.
   - **Kartu** — grid **4 kolom** (thumbnail giz/status, judul, ringkasan, lokasi + geo-tag, penulis, biro, waktu)
     dengan **paginasi “muat 20 kartu lagi”** (load more) lewat endpoint `/api/news/list` yang memakai aturan
     visibilitas pool yang sama, plus penghitung “Menampilkan X dari Y kartu berita”.
-- **Kirim Berita** — Judul, Naskah (rich text editor), Kategori, Tag, **Berita Biasa / Breaking News**,
+- **Kirim Berita** — Judul, Naskah (rich text editor), Kategori, Tag, **4 jenis berita**
+  (**Berita Biasa / Breaking News / Wajib Pimpinan / Sales Order**),
   Lokasi, Provinsi/Kota, **Geo-tagging** (klik peta / lokasi perangkat), simpan draft atau kirim ke produser.
 - **Unggah lampiran footage/gambar dengan progres & bisa banyak berkas sekaligus**:
   pilih/drag & drop **beberapa footage sekaligus** → berkas masuk antrean dan diunggah berurutan,
   masing-masing dengan **bilah progres + persentase + jumlah byte terkirim**, indikator **progres keseluruhan**
   (“Mengunggah 2 berkas… 45%”, total MB), status per berkas (**Menunggu / Mengunggah / Selesai / Gagal**),
   tombol **Batal** saat mengunggah, **Ulangi** untuk yang gagal, dan hapus dari daftar.
-  Selama masih ada unggahan berjalan tombol **Simpan Draft / Kirim ke Produser dinonaktifkan**
+  Selama masih ada unggahan berjalan tombol **Simpan Draft / Kirim Berita dinonaktifkan**
   (termasuk kirim lewat Enter) supaya lampiran tidak pernah tertinggal.
   Validasi jenis & ukuran dilakukan di browser sebelum mengunggah (pesan langsung, tanpa menunggu server).
 - **Format Broadcast pada naskah** — panel shortcode di editor naskah: klik penanda untuk menyisipkannya
@@ -290,13 +301,31 @@ Detail teknis yang penting:
 Chat adalah percakapan **pribadi** antar pengguna, dan relasinya bersifat **dua arah**
 (bila A boleh menghubungi B, B juga boleh membalas A).
 
-### Klaster utama
+### Alur klaster yang berlaku
 
-| Klaster | Anggota | Aturan |
-|---|---|---|
-| **1 · Biro Daerah** | Reporter Daerah ↔ Produser Daerah | **biro yang sama saja** (lintas biro ditolak, termasuk lewat API) |
-| **2 · Pusat** | Reporter Pusat, Koordinator Liputan, Produser Pusat | saling chat |
-| **3 · Koordinasi Daerah** | Produser Daerah (semua biro) ↔ Koordinator Daerah | lintas biro boleh |
+```
+BIRO   Reporter Daerah ──► Produser Daerah ──► Koordinator Daerah ──► Produser Pusat
+                          (biro yang sama)    (bila berita didorong ke pusat)
+
+PUSAT  Reporter Pusat   ──► Koordinator Liputan ──► Produser Pusat
+       Kontributor      ──► Koordinator Daerah  ──► Produser Pusat
+```
+
+| Pasangan | Aturan |
+|---|---|
+| Reporter Daerah ↔ Produser Daerah | **biro yang sama saja** (lintas biro ditolak, termasuk lewat API) |
+| Magang ↔ Produser Daerah | **biro yang sama saja** |
+| Produser Daerah ↔ Koordinator Daerah | semua biro (Klaster Koordinasi Daerah) |
+| Koordinator Daerah ↔ Produser Pusat | lanjutan alur berita biro yang didorong ke pusat |
+| Reporter Pusat ↔ Koordinator Liputan | alur pusat |
+| Koordinator Liputan ↔ Produser Pusat | alur pusat |
+| Kontributor ↔ Koordinator Daerah | alur kontributor |
+| Magang ↔ Koordinator Liputan | pendampingan magang |
+
+**Reporter Pusat ↔ Produser Pusat dan Kontributor ↔ Koordinator Liputan SENGAJA TIDAK ADA** —
+keduanya harus lewat perantara di atas (perubahan alur Okt 2026).
+"Didorong ke pusat" adalah keterangan alur, bukan syarat teknis: Koordinator Daerah dan
+Produser Pusat selalu dapat saling chat.
 
 ### Penghubung / eskalasi
 
@@ -304,8 +333,6 @@ Chat adalah percakapan **pribadi** antar pengguna, dan relasinya bersifat **dua 
 |---|---|
 | **Redaktur** ← Produser Pusat, Produser Daerah, Koordinator Liputan, Koordinator Daerah | Redaktur dapat dichat oleh keempat role tersebut |
 | **Admin & Super Admin** ← Produser Pusat, Produser Daerah, Koordinator Liputan, Koordinator Daerah | idem, untuk eskalasi operasional |
-| **Koordinator Liputan** ↔ Kontributor & Magang | pendampingan kontributor/magang |
-| **Produser Daerah** ↔ **Magang** | hanya **biro yang sama** (magang tanpa biro tidak punya lawan chat di sini) |
 
 Relasi di luar daftar di atas **ditolak** — termasuk pasangan yang tampak "wajar" seperti
 Admin ↔ Redaktur atau Reporter Pusat ↔ Redaktur, karena tidak diminta.
@@ -324,8 +351,15 @@ Admin ↔ Redaktur atau Reporter Pusat ↔ Redaktur, karena tidak diminta.
 
 Dua role baru ditambahkan dan memiliki **hak akses berita setara Produser Pusat**:
 
-- **Koordinator Liputan** — klaster pusat, pendamping Kontributor/Magang.
-- **Koordinator Daerah** — klaster koordinasi daerah (juga boleh mendorong berita daerah ke Pool Pusat).
+- **Koordinator Liputan** — alur pusat (Reporter Pusat → Koordinator Liputan → Produser Pusat),
+  pendamping Magang.
+- **Koordinator Daerah** — alur biro & kontributor (Koordinator Daerah ↔ Produser Pusat, pendamping
+  Kontributor); juga boleh mendorong berita daerah ke Pool Pusat.
+
+> **Catatan operasional**: akun kedua role koordinator **tidak dibuat otomatis** oleh seed pada
+> instalasi yang sudah berjalan — sementara aturan di atas menempatkan mereka sebagai perantara.
+> Buat akunnya lewat **Pengaturan → Pengguna & Hak Akses** (Admin/Super Admin dapat membuat role
+> Koordinator) agar alur Reporter Pusat → Produser Pusat dan Kontributor → Produser Pusat berjalan.
 
 > Catatan: karena keduanya "setara Produser Pusat", cakupan tabulasi beritanya adalah pool pusat + berita
 > yang didorong ke pusat (tanpa tab Tabulasi Daerah). Bila Koordinator Daerah perlu melihat tabulasi
@@ -505,14 +539,17 @@ npm run smoke:cues     # 18 pemeriksaan unit sanitasi (termasuk pengerasan CSS/X
 npm run smoke:export   # 46 pemeriksaan unit penyusun data (termasuk penetralan formula CSV/SAN-1) + 29 pemeriksaan ekspor CSV (+ pembuktian PDF/Excel sudah hilang)
 npm run smoke:reset    # 37 pemeriksaan unit token/email + 43 pemeriksaan alur lupa kata sandi (termasuk A-1: tautan reset tidak pernah tampil di halaman publik)
 npm run smoke:bureau-users # 45 unit izin + 8 unit penjaga akun (data DB) + 51 integrasi akun biro & pengguna
+npm run smoke:listing  # 46 integrasi halaman Listing Berita (akses per role, kolom, accordion, cari & filter tanggal)
 npm run smoke:airing   # 35 pemeriksaan unit tayang + 49 integrasi Tayang Onair/Medsos & laporan kanal
 npm run smoke:login    # 26 pemeriksaan unit konten login + 31 integrasi pengaturan halaman login (Frontpage)
+npm run smoke:kinds    # 18 pemeriksaan unit daftar jenis berita + 23 integrasi (kirim/filter/badge/notifikasi/ekspor)
 npm run reset:unit     # hanya uji unit token reset & pengaturan email (butuh DB salinan /tmp)
 npm run export:unit    # hanya uji unit penyusun data ekspor (tanpa browser)
 npm run cues:unit      # hanya uji unit sanitasi chip penanda (tanpa browser)
 npm run chat:unit      # hanya uji unit aturan klaster & batas edit (tanpa browser)
 npm run share:unit     # hanya uji unit token berbagi (tanpa browser)
 npm run login:unit     # hanya uji unit konten halaman login (parser judul, poin, validasi)
+npm run kinds:unit     # hanya uji unit daftar jenis berita (label, badge, prioritas notifikasi)
 npm run smoke:cards    # khusus tampilan kartu (grid 4 kolom + muat 20 kartu lagi)
 npm run smoke:live     # 93 pemeriksaan terhadap aplikasi yang sudah dipublikasikan
 npm run db:clean-test  # bersihkan artefak data uji (bila menjalankan uji pada DB aplikasi)

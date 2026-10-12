@@ -80,7 +80,7 @@ try {
   check('antrean unggahan berjalan (indikator progres keseluruhan)', (await page.locator('text=/Mengunggah \\d+ berkas/').count()) > 0);
 
   // ---- Selama mengunggah: tombol kirim harus nonaktif
-  const submitBtn = page.locator('button:has-text("Kirim ke Produser")');
+  const submitBtn = page.locator('button:has-text("Kirim Berita")');
   const disabledDuring = await submitBtn.isDisabled();
   check('tombol kirim dinonaktifkan selama unggahan berjalan', disabledDuring);
   check('ada pemberitahuan menunggu unggahan selesai', (await page.locator('text=Lampiran sedang diunggah').count()) > 0);
@@ -145,7 +145,7 @@ try {
   await page.keyboard.type('JAKARTA — Uji unggah beberapa footage sekaligus dengan indikator progres.');
   await page.fill('#location', 'Jakarta Pusat');
   await page.selectOption('#province', { label: 'DKI Jakarta' });
-  await page.click('button:has-text("Kirim ke Produser")');
+  await page.click('button:has-text("Kirim Berita")');
   await page.waitForURL(/\/dashboard\/tabulasi\/berita\//, { timeout: 90000 });
   const mediaCount = await page.locator('section:has-text("Footage") >> text=3 lampiran').count();
   check('berita tersimpan dengan 3 lampiran', mediaCount > 0 || (await page.locator('video, img[alt$=".png"]').count()) >= 3);

@@ -364,11 +364,21 @@ try {
 
     // (b) Penegakan di SERVER: pakai halaman akun LAIN (tombol simpan ada), lalu alihkan
     // hidden id ke akun Super Admin sendiri → server HARUS menolak.
-    await page.goto(`${BASE}/dashboard/pengaturan/pengguna/${redakturId}`, { waitUntil: 'domcontentloaded' });
+    //
+    // PENTING (uji rapuh yang diperbaiki): `input[name="id"]` adalah input CONTROLLED milik
+    // React. Bila nilainya diubah SEBELUM hidrasi selesai, React akan mengembalikannya ke id
+    // asli saat hidrasi → form terkirim untuk akun yang salah dan asersi gagal (padahal
+    // aplikasinya benar). Karena itu: tunggu hidrasi, ubah nilainya, lalu PASTIKAN nilainya
+    // benar-benar sudah terganti sebelum menekan Simpan.
+    await page.goto(`${BASE}/dashboard/pengaturan/pengguna/${redakturId}`, { waitUntil: 'load' });
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(800); // beri kesempatan hidrasi React menyelesaikan diri
     await page.evaluate((id) => {
       const hidden = document.querySelector('input[name="id"]');
       if (hidden) hidden.value = id;
     }, saId);
+    const swappedSelf = await page.evaluate(() => document.querySelector('input[name="id"]')?.value ?? '');
+    check('sasaran form benar-benar dialihkan ke akun sendiri (uji paksa sah)', swappedSelf === saId, swappedSelf.slice(0, 8));
     await page.click('button:has-text("Simpan Perubahan")');
     await page.waitForTimeout(5000);
     const afterText = await page.locator('body').innerText();

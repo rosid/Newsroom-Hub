@@ -20,6 +20,7 @@ import {
   STATUS_BADGE,
   STATUS_LABELS,
 } from '@/lib/constants';
+import { kindMeta } from '@/lib/news-kinds';
 import { formatDateTimeID, formatBytes, parseTags, timeAgo } from '@/lib/utils';
 import { sanitizeHtml } from '@/lib/sanitize';
 import { mediaSrc } from '@/lib/storage';
@@ -104,7 +105,9 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
           <article className="panel shadow-soft p-4">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className={STATUS_BADGE[news.status]}>{STATUS_LABELS[news.status]}</span>
-              {news.kind === 'BREAKING' ? <span className="badge badge-danger">BREAKING NEWS</span> : null}
+              {news.kind !== 'REGULAR' ? (
+                <span className={kindMeta(news.kind).badge}>{kindMeta(news.kind).label.toUpperCase()}</span>
+              ) : null}
               <span className="badge badge-muted">{news.category}</span>
               {news.originPool === 'DAERAH' ? <span className="badge badge-info">Pool Daerah</span> : <span className="badge badge-muted">Pool Pusat</span>}
               {news.isPushedToCenter ? <span className="badge badge-warn">Didorong ke Pusat</span> : null}

@@ -76,7 +76,11 @@ check(
 );
 
 // ================= KLASTER 2: Pusat =================
-check('Reporter Pusat ↔ Produser Pusat: boleh', allowed(u('REPORTER_PUSAT'), u('PRODUSER_PUSAT')));
+// ALUR BARU (Okt 2026): Reporter Pusat → Koordinator Liputan → Produser Pusat.
+check(
+  'Reporter Pusat ↔ Produser Pusat: DILARANG (harus lewat Koordinator Liputan)',
+  !allowed(u('REPORTER_PUSAT'), u('PRODUSER_PUSAT'))
+);
 check('Reporter Pusat ↔ Koordinator Liputan: boleh', allowed(u('REPORTER_PUSAT'), u('KOORDINATOR_LIPUTAN')));
 check('Koordinator Liputan ↔ Produser Pusat: boleh', allowed(u('KOORDINATOR_LIPUTAN'), u('PRODUSER_PUSAT')));
 check(
@@ -123,7 +127,13 @@ const escalationCallers: Role[] = ['PRODUSER_PUSAT', 'PRODUSER_DAERAH', 'KOORDIN
 });
 
 // ================= Kontributor & Magang =================
-check('Kontributor ↔ Koordinator Liputan: boleh', allowed(u('KONTRIBUTOR', MEDAN), u('KOORDINATOR_LIPUTAN')));
+// ALUR BARU (Okt 2026): Kontributor → Koordinator Daerah → Produser Pusat.
+check(
+  'Kontributor ↔ Koordinator Liputan: DILARANG (dialihkan ke Koordinator Daerah)',
+  !allowed(u('KONTRIBUTOR', MEDAN), u('KOORDINATOR_LIPUTAN'))
+);
+check('Kontributor ↔ Koordinator Daerah: boleh (alur baru)', allowed(u('KONTRIBUTOR', MEDAN), u('KOORDINATOR_DAERAH')));
+check('Koordinator Daerah ↔ Produser Pusat: boleh (lanjutan alur ke pusat)', allowed(u('KOORDINATOR_DAERAH', MEDAN), u('PRODUSER_PUSAT')));
 check('Magang Medan ↔ Koordinator Liputan: boleh', allowed(u('MAGANG', MEDAN), u('KOORDINATOR_LIPUTAN')));
 check('Magang Medan ↔ Produser Medan: boleh (biro sama)', allowed(u('MAGANG', MEDAN), u('PRODUSER_DAERAH', MEDAN)));
 check(
@@ -162,15 +172,26 @@ check('kandidat lawan chat mencakup semua pasangan yang diizinkan', specMismatch
 // ================= Matriks menyeluruh: hanya pasangan yang diizinkan =================
 const pairKey = (a: Role, b: Role) => [a, b].sort().join('|');
 // Daftar pasangan yang diizinkan (ditulis berpasangan, key dibuat otomatis agar bebas urutan)
+/**
+ * Matriks pasangan yang DIIZINKAN — mengikuti alur yang berlaku (perubahan Okt 2026):
+ *   BIRO  : Reporter Daerah → Produser Daerah (biro sama) → Koordinator Daerah → Produser Pusat
+ *   PUSAT : Reporter Pusat → Koordinator Liputan → Produser Pusat
+ *           Kontributor   → Koordinator Daerah  → Produser Pusat
+ * CATATAN: REPORTER_PUSAT↔PRODUSER_PUSAT dan KONTRIBUTOR↔KOORDINATOR_LIPUTAN SENGAJA
+ * TIDAK ada di daftar (harus lewat perantara), dan diuji terpisah di bawah.
+ */
 const EXPECTED_PAIRS: [Role, Role][] = [
-  // Klaster 2 (pusat)
-  ['REPORTER_PUSAT', 'PRODUSER_PUSAT'],
+  // Alur biro
+  ['REPORTER_DAERAH', 'PRODUSER_DAERAH'], // + syarat biro sama
+  ['MAGANG', 'PRODUSER_DAERAH'], // + syarat biro sama
+  ['PRODUSER_DAERAH', 'KOORDINATOR_DAERAH'],
+  ['KOORDINATOR_DAERAH', 'PRODUSER_PUSAT'],
+  // Alur pusat
   ['REPORTER_PUSAT', 'KOORDINATOR_LIPUTAN'],
   ['KOORDINATOR_LIPUTAN', 'PRODUSER_PUSAT'],
-  // Klaster 1 (diuji dengan biro sama)
-  ['REPORTER_DAERAH', 'PRODUSER_DAERAH'],
-  // Klaster 3
-  ['PRODUSER_DAERAH', 'KOORDINATOR_DAERAH'],
+  // Kontributor & Magang
+  ['KONTRIBUTOR', 'KOORDINATOR_DAERAH'],
+  ['MAGANG', 'KOORDINATOR_LIPUTAN'],
   // Eskalasi Redaktur
   ['REDAKTUR', 'PRODUSER_PUSAT'],
   ['REDAKTUR', 'PRODUSER_DAERAH'],
@@ -185,10 +206,6 @@ const EXPECTED_PAIRS: [Role, Role][] = [
   ['SUPER_ADMIN', 'PRODUSER_DAERAH'],
   ['SUPER_ADMIN', 'KOORDINATOR_LIPUTAN'],
   ['SUPER_ADMIN', 'KOORDINATOR_DAERAH'],
-  // Kontributor & Magang
-  ['KONTRIBUTOR', 'KOORDINATOR_LIPUTAN'],
-  ['MAGANG', 'KOORDINATOR_LIPUTAN'],
-  ['MAGANG', 'PRODUSER_DAERAH'],
 ];
 const expected = new Set(EXPECTED_PAIRS.map(([a, b]) => pairKey(a, b)));
 let mismatches: string[] = [];
@@ -201,9 +218,57 @@ ALL.forEach((a) => {
 });
 check('matriks 11 role sesuai aturan klaster', mismatches.length === 0, mismatches.slice(0, 4).join(', '));
 
+// ===== Alur baru (Okt 2026): pasangan yang DICABUT dan yang DITAMBAH =====
+check(
+  'Reporter Pusat TIDAK boleh chat langsung ke Produser Pusat (wajib lewat Koordinator Liputan)',
+  !canChatBetween(u('REPORTER_PUSAT', MEDAN), u('PRODUSER_PUSAT', MEDAN, 'pp'))
+);
+check(
+  'Kontributor TIDAK lagi chat ke Koordinator Liputan (dialihkan ke Koordinator Daerah)',
+  !canChatBetween(u('KONTRIBUTOR', MEDAN), u('KOORDINATOR_LIPUTAN', MEDAN, 'kl'))
+);
+check(
+  'Kontributor BOLEH chat ke Koordinator Daerah (alur baru)',
+  canChatBetween(u('KONTRIBUTOR', MEDAN), u('KOORDINATOR_DAERAH', MEDAN, 'kd'))
+);
+check(
+  'Koordinator Daerah BOLEH chat ke Produser Pusat (lanjutan alur didorong ke pusat)',
+  canChatBetween(u('KOORDINATOR_DAERAH', MEDAN), u('PRODUSER_PUSAT', MEDAN, 'pp'))
+);
+check(
+  'Reporter Pusat tetap BOLEH chat ke Koordinator Liputan',
+  canChatBetween(u('REPORTER_PUSAT', MEDAN), u('KOORDINATOR_LIPUTAN', MEDAN, 'kl'))
+);
+check(
+  'Magang TETAP boleh chat Koordinator Liputan + Produser Daerah biro sama',
+  canChatBetween(u('MAGANG', MEDAN), u('KOORDINATOR_LIPUTAN', MEDAN, 'kl')) &&
+    canChatBetween(u('MAGANG', MEDAN), u('PRODUSER_DAERAH', MEDAN, 'pd')) &&
+    !canChatBetween(u('MAGANG', MEDAN), u('PRODUSER_DAERAH', 'biro-lain', 'pd2'))
+);
+check(
+  'setiap role tetap punya lawan chat (tidak ada yang terputus)',
+  ALL.every((r) => isChatRole(r)),
+  ALL.filter((r) => !isChatRole(r)).join(', ') || 'semua punya'
+);
+check(
+  'kandidat kontak Reporter Pusat tidak memuat Produser Pusat',
+  !partnerSpecsFor(u('REPORTER_PUSAT', MEDAN)).some((sp) => sp.roles.includes('PRODUSER_PUSAT'))
+);
+check(
+  'kandidat kontak Koordinator Daerah memuat Produser Pusat & Kontributor',
+  partnerSpecsFor(u('KOORDINATOR_DAERAH', MEDAN)).some((sp) => sp.roles.includes('PRODUSER_PUSAT')) &&
+    partnerSpecsFor(u('KOORDINATOR_DAERAH', MEDAN)).some((sp) => sp.roles.includes('KONTRIBUTOR'))
+);
+
 check('Produser Daerah berada di 2 klaster', clustersOfRole('PRODUSER_DAERAH').length === 2, clustersOfRole('PRODUSER_DAERAH').join(' + '));
 check('ada 3 klaster terdaftar', CHAT_CLUSTERS.length === 3);
-check('ringkasan aturan memuat eskalasi & kontributor/magang', CHAT_RULE_SUMMARIES.length === 6, `${CHAT_RULE_SUMMARIES.length} baris aturan`);
+check(
+  'ringkasan aturan memuat alur baru (biro/pusat/kontributor/eskalasi/magang)',
+  CHAT_RULE_SUMMARIES.length === 6 &&
+    CHAT_RULE_SUMMARIES.some((r) => /Koordinator Daerah/.test(r.detail)) &&
+    CHAT_RULE_SUMMARIES.some((r) => /Reporter Pusat/.test(r.detail)),
+  `${CHAT_RULE_SUMMARIES.length} baris aturan`
+);
 
 // ================= Batas edit 60 detik =================
 const me = { id: 'user-me' };

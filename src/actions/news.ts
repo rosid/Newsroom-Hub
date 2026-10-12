@@ -30,6 +30,7 @@ import {
 import type { MediaType, NewsKind, NewsStatus, Pool, Role } from '@prisma/client';
 import { deleteObject } from '@/lib/storage';
 import { MAX_ATTACHMENTS } from '@/lib/media-limits';
+import { DEFAULT_NEWS_KIND, kindMeta } from '@/lib/news-kinds';
 
 type MediaInput = {
   storageKey: string;
@@ -87,7 +88,7 @@ export async function saveNewsAction(_prev: ActionState, formData: FormData): Pr
     script: formData.get('script') ?? '',
     summary: formData.get('summary') ?? '',
     category: formData.get('category') ?? '',
-    kind: formData.get('kind') ?? 'REGULAR',
+    kind: formData.get('kind') ?? DEFAULT_NEWS_KIND,
     location: formData.get('location') ?? '',
     province: formData.get('province') ?? '',
     city: formData.get('city') ?? '',
@@ -234,6 +235,16 @@ export async function saveNewsAction(_prev: ActionState, formData: FormData): Pr
   };
 }
 
+/**
+ * Prioritas jenis berita → tipe notifikasi lonceng.
+ * Urgent = Breaking News, Penting = Wajib Pimpinan, Normal = sisanya.
+ */
+const NOTIF_TYPE_BY_PRIORITY: Record<'NORMAL' | 'PENTING' | 'URGENT', 'INFO' | 'WARNING' | 'DANGER'> = {
+  NORMAL: 'INFO',
+  PENTING: 'WARNING',
+  URGENT: 'DANGER',
+};
+
 async function notifyReviewers(
   authorRole: Role,
   bureauId: string | null,
@@ -251,18 +262,19 @@ async function notifyReviewers(
     await notifyUsers(
       produsers.map((p) => p.id).filter((id) => id !== excludeUserId),
       {
-        title: kind === 'BREAKING' ? `Breaking News dari biro: ${title}` : `Kiriman berita baru: ${title}`,
+        // Judul & prioritas notifikasi mengikuti jenis berita (lihat lib/news-kinds.ts).
+        title: `${kindMeta(kind).notificationPrefix} dari biro: ${title}`,
         body: 'Menunggu validasi produser.',
         link,
-        type: kind === 'BREAKING' ? 'DANGER' : 'INFO',
+        type: NOTIF_TYPE_BY_PRIORITY[kindMeta(kind).priority],
       }
     );
   } else {
     await notifyRoles(['PRODUSER_PUSAT', 'REDAKTUR'], {
-      title: kind === 'BREAKING' ? `Breaking News pusat: ${title}` : `Kiriman berita pusat: ${title}`,
+      title: `${kindMeta(kind).notificationPrefix} pusat: ${title}`,
       body: 'Menunggu validasi/penyiaran.',
       link,
-      type: kind === 'BREAKING' ? 'DANGER' : 'INFO',
+      type: NOTIF_TYPE_BY_PRIORITY[kindMeta(kind).priority],
     }, excludeUserId);
   }
 }

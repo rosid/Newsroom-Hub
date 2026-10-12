@@ -1,4 +1,5 @@
 import type { ExportColumn, ExportSheet } from './builders';
+import { NEWS_KINDS } from '@/lib/news-kinds';
 import {
   KIND_LABELS,
   ROLE_LABELS,
@@ -248,14 +249,18 @@ export function buildReportExport(
 
 /** Ringkasan singkat tabulasi untuk baris pertama berkas CSV. */
 export function newsCsvSummary(items: NewsExportItem[], label: string): string[][] {
-  const breaking = items.filter((n) => n.kind === 'BREAKING').length;
   const national = items.filter((n) => n.isNational).length;
-  return [
+  // Semua jenis berita dihitung dari daftar terpusat (news-kinds.ts) supaya menambah
+  // jenis baru otomatis ikut muncul di ringkasan ekspor.
+  const rows: string[][] = [
     ['Tabulasi', label],
     ['Jumlah berita', numberID(items.length)],
-    ['Breaking news', numberID(breaking)],
-    ['Siaran nasional', numberID(national)],
   ];
+  for (const k of NEWS_KINDS) {
+    rows.push([k.label, numberID(items.filter((n) => n.kind === k.value).length)]);
+  }
+  rows.push(['Siaran nasional', numberID(national)]);
+  return rows;
 }
 
 /** Ringkasan singkat laporan untuk baris pertama berkas CSV laporan. */

@@ -143,7 +143,7 @@ try {
   await page.fill('#summary', 'Ringkasan uji penanda format siaran.');
   await page.fill('#location', 'Gerbang Tol Jakarta');
   await page.selectOption('#province', { label: 'DKI Jakarta' });
-  await page.click('button:has-text("Kirim ke Produser")');
+  await page.click('button:has-text("Kirim Berita")');
   await page.waitForURL(/\/dashboard\/tabulasi\/berita\//, { timeout: 90000 });
   const newsId = page.url().split('/berita/')[1];
 

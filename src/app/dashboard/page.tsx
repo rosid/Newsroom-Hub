@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requireUser } from '@/lib/session';
 import { getDashboardSummary, getStats } from '@/lib/news';
 import { ROLE_LABELS, STATUS_BADGE, STATUS_LABELS } from '@/lib/constants';
+import { kindMeta } from '@/lib/news-kinds';
 import { parseDateRange, timeAgo } from '@/lib/utils';
 import StatsCards from '@/components/news/StatsCards';
 import AnnouncementBanner from '@/components/news/AnnouncementBanner';
@@ -63,7 +64,7 @@ export default async function DashboardHome() {
                   <Link href={`/dashboard/tabulasi/berita/${n.id}`} className="flex flex-col gap-1.5 px-3 py-2.5 hover:bg-panel2">
                     <div className="flex items-start justify-between gap-3">
                       <p className="text-[13px] font-semibold leading-snug">
-                        {n.kind === 'BREAKING' ? <span className="badge badge-danger mr-1.5 !py-0">BREAKING</span> : null}
+                        {n.kind !== 'REGULAR' ? <span className={`${kindMeta(n.kind).badge} mr-1.5 !py-0`}>{kindMeta(n.kind).short}</span> : null}
                         {n.title}
                       </p>
                       <span className={STATUS_BADGE[n.status]}>{STATUS_LABELS[n.status]}</span>

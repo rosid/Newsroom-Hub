@@ -11,6 +11,7 @@ import GeoPicker from './GeoPicker';
 import { saveNewsAction } from '@/actions/news';
 import type { ActionState } from '@/lib/validations';
 import { PROVINCES } from '@/lib/provinces';
+import { DEFAULT_NEWS_KIND, NEWS_KINDS, kindMeta, type NewsKindValue } from '@/lib/news-kinds';
 
 export type NewsFormInitial = {
   id?: string;
@@ -18,7 +19,7 @@ export type NewsFormInitial = {
   script: string;
   summary: string;
   category: string;
-  kind: 'REGULAR' | 'BREAKING';
+  kind: NewsKindValue;
   location: string;
   province: string;
   city: string;
@@ -39,7 +40,9 @@ export default function NewsForm({
 }) {
   const router = useRouter();
   const [state, action] = useActionState<ActionState, FormData>(saveNewsAction, {});
-  const [kind, setKind] = useState<'REGULAR' | 'BREAKING'>(initial?.kind ?? 'REGULAR');
+  const [kind, setKind] = useState<NewsKindValue>(initial?.kind ?? DEFAULT_NEWS_KIND);
+  /** Keterangan singkat jenis yang sedang dipilih (dari daftar terpusat). */
+  const selectedKind = kindMeta(kind);
   const [lat, setLat] = useState(initial?.latitude ?? '');
   const [lng, setLng] = useState(initial?.longitude ?? '');
   const [notice, setNotice] = useState('');
@@ -116,25 +119,25 @@ export default function NewsForm({
             <div>
               <span className="label">Jenis Berita *</span>
               <input type="hidden" name="kind" value={kind} />
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setKind('REGULAR')}
-                  className={`btn flex-1 justify-center ${kind === 'REGULAR' ? 'btn-primary' : ''}`}
-                >
-                  <Icon name="file" size={13} /> Berita Biasa
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setKind('BREAKING')}
-                  className={`btn flex-1 justify-center ${kind === 'BREAKING' ? 'btn-primary' : ''}`}
-                >
-                  <Icon name="flame" size={13} /> Breaking News
-                </button>
+              <div className="grid grid-cols-2 gap-1.5">
+                {NEWS_KINDS.map((k) => (
+                  <button
+                    key={k.value}
+                    type="button"
+                    onClick={() => setKind(k.value)}
+                    className={`btn justify-center ${kind === k.value ? 'btn-primary' : ''}`}
+                    data-kind-option={k.value}
+                  >
+                    <Icon name={k.icon} size={13} /> {k.label}
+                  </button>
+                ))}
               </div>
-              {kind === 'BREAKING' ? (
-                <p className="hint mt-1 text-[color:var(--warn)]">
-                  Breaking news langsung memicu notifikasi ke redaktur &amp; produser.
+              {selectedKind.description ? (
+                <p
+                  className={`hint mt-1 ${selectedKind.priority === 'URGENT' ? 'text-[color:var(--warn)]' : ''}`}
+                  data-kind-hint
+                >
+                  {selectedKind.description}
                 </p>
               ) : null}
             </div>
@@ -260,7 +263,7 @@ export default function NewsForm({
         <section className="panel shadow-soft sticky top-16 flex flex-col gap-2 p-4">
           <h2 className="text-[14px] font-bold">Kirim</h2>
           <p className="hint">
-            “Simpan Draft” menyimpan tanpa mengirim. “Kirim ke Produser” mengubah status menjadi Menunggu Persetujuan.
+            “Simpan Draft” menyimpan tanpa mengirim. “Kirim Berita” mengubah status menjadi Menunggu Persetujuan.
           </p>
 
           {state?.error ? (
@@ -285,7 +288,7 @@ export default function NewsForm({
             <Icon name="file" size={14} /> Simpan Draft
           </button>
           <SubmitButton className="btn btn-primary w-full" pendingText="Mengirim ke newsroom…" disabled={uploading}>
-            <Icon name="send" size={14} /> Kirim ke Produser
+            <Icon name="send" size={14} /> Kirim Berita
           </SubmitButton>
           <Link href="/dashboard/tabulasi?tab=saya" className="btn w-full">
             Batal

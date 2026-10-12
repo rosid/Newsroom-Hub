@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useMemo, useState } from 'react';
 import Icon from '@/components/ui/Icon';
 import { AIR_CHANNEL_BADGE, STATUS_BADGE, STATUS_LABELS, ROLE_LABELS } from '@/lib/constants';
+import { kindMeta } from '@/lib/news-kinds';
 import { BASE_PATH } from '@/lib/base';
 import { formatDateTimeID, timeAgo } from '@/lib/utils';
 import type { NewsCardData } from '@/lib/news';
@@ -154,7 +155,7 @@ function NewsCard({ news: n, showBureau }: { news: NewsCardData; showBureau: boo
           <span className={STATUS_BADGE[n.status]}>{STATUS_LABELS[n.status]}</span>
         </div>
         <div className="absolute right-2 top-2 flex flex-wrap justify-end gap-1">
-          {n.kind === 'BREAKING' ? <span className="badge badge-danger">BREAKING</span> : null}
+          {n.kind !== 'REGULAR' ? <span className={kindMeta(n.kind).badge}>{kindMeta(n.kind).short}</span> : null}
           {n.isNational ? <span className="badge badge-brand">Nasional</span> : null}
         </div>
 

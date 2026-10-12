@@ -15,6 +15,7 @@ import {
 import ExportButtons from '@/components/ui/ExportButtons';
 import Icon from '@/components/ui/Icon';
 import { AIR_CHANNEL_LABELS } from '@/lib/constants';
+import { kindMeta } from '@/lib/news-kinds';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Laporan' };
@@ -206,7 +207,7 @@ export default async function LaporanPage({
                       href={`/dashboard/tabulasi/berita/${n.id}`}
                       className="text-[12.5px] font-semibold hover:text-accent"
                     >
-                      {n.kind === 'BREAKING' ? <span className="badge badge-danger mr-1.5 !py-0">BREAKING</span> : null}
+                      {n.kind !== 'REGULAR' ? <span className={`${kindMeta(n.kind).badge} mr-1.5 !py-0`}>{kindMeta(n.kind).short}</span> : null}
                       {n.title}
                     </Link>
                     <span className="mono block text-[10.5px] text-muted">{n.code}</span>

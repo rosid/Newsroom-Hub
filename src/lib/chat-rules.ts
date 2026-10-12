@@ -1,20 +1,33 @@
 /**
- * Aturan chat Newsroom Hub — SATU SUMBER KEBENARAN, dipakai SERVER (otorisasi) dan
+ * Aturan klaster chat Newsroom Hub — SATU SUMBER KEBENARAN, dipakai SERVER (otorisasi) dan
  * CLIENT (tampilan). Jangan mengimpor prisma/next/fs di sini karena file ini juga
  * dipakai komponen client.
  *
- * Klaster utama:
- * 1. DAERAH_BIRO       : Reporter Daerah ↔ Produser Daerah **biro yang sama**
- *                        (tidak lintas biro; sesama reporter/produser tidak boleh).
- * 2. PUSAT             : Reporter Pusat ↔ Koordinator Liputan ↔ Produser Pusat.
- * 3. KOORDINASI_DAERAH : Produser Daerah (semua biro) ↔ Koordinator Daerah.
+ * =====================================================================================
+ * ALUR (perubahan Okt 2026 — versi berlaku)
+ * =====================================================================================
+ * BIRO:
+ *   Reporter Daerah ──► Produser Daerah (biro yang sama)
+ *                            │  (bila berita DIDORONG KE PUSAT — keterangan alur, bukan syarat
+ *                            │   teknis: pasangan di bawah selalu bisa chat)
+ *                            ▼
+ *                        Koordinator Daerah ──► Produser Pusat
  *
- * Penghubung (eskalasi koordinasi):
- * 4. Redaktur dapat dichat oleh Produser Pusat, Produser Daerah, Koordinator Liputan,
- *    dan Koordinator Daerah.
- * 5. Admin & Super Admin dapat dichat oleh keempat role Produser/Koordinator di atas.
- * 6. Kontributor & Magang dapat chat dengan Koordinator Liputan; khusus Magang yang
- *    berada di biro, juga dapat chat dengan Produser Daerah **biro yang sama**.
+ * PUSAT:
+ *   Kontributor      ──► Koordinator Daerah ──► Produser Pusat
+ *   Reporter Pusat   ──► Koordinator Liputan ──► Produser Pusat
+ *
+ * CATATAN PENTING (jangan diubah tanpa instruksi):
+ *   • Reporter Pusat TIDAK dapat chat langsung ke Produser Pusat (harus lewat Koordinator Liputan).
+ *   • Kontributor TIDAK lagi chat ke Koordinator Liputan (dialihkan ke Koordinator Daerah).
+ *   • Magang TETAP chat ke Koordinator Liputan, dan — bila berada di biro — ke Produser
+ *     Daerah dari biro yang sama.
+ *
+ * CARA MEMBACA BERKAS INI: aturan ditulis sebagai TABEL PASANGAN (`CHAT_PAIRS`) + daftar
+ * pasangan yang mensyaratkan biro sama (`SAME_BUREAU_PAIRS`). `canChatBetween` dan
+ * `partnerSpecsFor` keduanya DITURUNKAN dari tabel itu, sehingga menambah/menghapus satu
+ * pasangan cukup di satu tempat — tidak ada aturan bertumpuk yang bisa saling berbeda.
+ * =====================================================================================
  */
 import type { Role } from '@prisma/client';
 
@@ -31,6 +44,7 @@ export type ChatClusterInfo = {
   roles: Role[];
 };
 
+/** Klaster pusat yang saling berhubungan langsung (Reporter Pusat lewat Koordinator Liputan). */
 export const PUSAT_CHAT_ROLES: Role[] = ['REPORTER_PUSAT', 'KOORDINATOR_LIPUTAN', 'PRODUSER_PUSAT'];
 
 /** Role yang menaungi koordinasi liputan/daerah. */
@@ -39,37 +53,100 @@ export const KOORDINATOR_ROLES: Role[] = ['KOORDINATOR_LIPUTAN', 'KOORDINATOR_DA
 export const PRODUSER_ROLES: Role[] = ['PRODUSER_PUSAT', 'PRODUSER_DAERAH'];
 /** Pengelola sistem/redaksi yang dapat dichat keempat role Produser/Koordinator. */
 export const ADMIN_ROLES: Role[] = ['ADMIN', 'SUPER_ADMIN'];
-/** Role yang berkoordinasi dengan Koordinator Liputan (kontributor & magang). */
-export const PEMBIMBING_ROLES: Role[] = ['KONTRIBUTOR', 'MAGANG'];
-/** Role yang boleh menghubungi Redaktur maupun Admin/Super Admin. */
+/** Role yang boleh menghubungi Redaktur maupun Admin/Super Admin (eskalasi koordinasi). */
 export const ESCALATION_CALLERS: Role[] = [...PRODUSER_ROLES, ...KOORDINATOR_ROLES];
+
+/**
+ * Pasangan role yang boleh saling chat (berlaku dua arah).
+ * Pasangan yang butuh biro sama didaftarkan juga di `SAME_BUREAU_PAIRS` di bawah.
+ */
+const CHAT_PAIRS: [Role, Role][] = [
+  // ---- Alur BIRO ----
+  ['REPORTER_DAERAH', 'PRODUSER_DAERAH'], // + syarat biro sama
+  ['MAGANG', 'PRODUSER_DAERAH'], // + syarat biro sama
+  ['PRODUSER_DAERAH', 'KOORDINATOR_DAERAH'], // semua biro
+  ['KOORDINATOR_DAERAH', 'PRODUSER_PUSAT'], // lanjutan alur: didorong ke pusat
+  // ---- Alur PUSAT ----
+  ['REPORTER_PUSAT', 'KOORDINATOR_LIPUTAN'],
+  ['KOORDINATOR_LIPUTAN', 'PRODUSER_PUSAT'],
+  // (Reporter Pusat ↔ Produser Pusat SENGAJA TIDAK ADA — harus lewat Koordinator Liputan)
+  // ---- Kontributor ----
+  ['KONTRIBUTOR', 'KOORDINATOR_DAERAH'],
+  // ---- Pembimbing magang ----
+  ['MAGANG', 'KOORDINATOR_LIPUTAN'],
+  // ---- Eskalasi ke Redaktur ----
+  ...ESCALATION_CALLERS.map((r) => ['REDAKTUR', r] as [Role, Role]),
+  // ---- Eskalasi ke Admin & Super Admin ----
+  ...ESCALATION_CALLERS.flatMap((r) => ADMIN_ROLES.map((a) => [a, r] as [Role, Role])),
+];
+
+/** Kunci pasangan ternormalisasi (urutan role tidak berpengaruh). */
+const pairKey = (a: Role, b: Role): string => [a, b].sort().join('|');
+
+/** Pasangan yang HANYA boleh chat bila kedua pengguna berada di biro yang sama. */
+const SAME_BUREAU_PAIRS = new Set<string>([
+  pairKey('REPORTER_DAERAH', 'PRODUSER_DAERAH'),
+  pairKey('MAGANG', 'PRODUSER_DAERAH'),
+]);
+
+const ALLOWED_PAIRS = new Set<string>(CHAT_PAIRS.map(([a, b]) => pairKey(a, b)));
+/** Pasangan yang boleh chat tanpa melihat biro — dipakai menyusun kandidat kontak. */
+const ANY_BUREAU_BY_ROLE = new Map<Role, Set<Role>>();
+const SAME_BUREAU_BY_ROLE = new Map<Role, Set<Role>>();
+for (const [a, b] of CHAT_PAIRS) {
+  const same = SAME_BUREAU_PAIRS.has(pairKey(a, b));
+  const target = same ? SAME_BUREAU_BY_ROLE : ANY_BUREAU_BY_ROLE;
+  for (const [x, y] of [
+    [a, b],
+    [b, a],
+  ] as [Role, Role][]) {
+    if (!target.has(x)) target.set(x, new Set<Role>());
+    target.get(x)!.add(y);
+  }
+}
+
+const ALL_ROLES: Role[] = [
+  'SUPER_ADMIN',
+  'ADMIN',
+  'REDAKTUR',
+  'PRODUSER_PUSAT',
+  'REPORTER_PUSAT',
+  'PRODUSER_DAERAH',
+  'REPORTER_DAERAH',
+  'KONTRIBUTOR',
+  'MAGANG',
+  'KOORDINATOR_LIPUTAN',
+  'KOORDINATOR_DAERAH',
+];
 
 /** Ringkasan aturan untuk ditampilkan di halaman chat. */
 export const CHAT_RULE_SUMMARIES: { title: string; detail: string }[] = [
   {
-    title: 'Klaster 1 · Biro Daerah',
-    detail: 'Reporter Daerah ↔ Produser Daerah dari biro yang sama (tidak lintas biro).',
+    title: 'Biro · Reporter Daerah → Produser Daerah',
+    detail: 'Reporter Daerah chat dengan Produser Daerah dari biro yang sama (tidak lintas biro).',
   },
   {
-    title: 'Klaster 2 · Pusat',
-    detail: 'Reporter Pusat, Koordinator Liputan, dan Produser Pusat saling chat.',
-  },
-  {
-    title: 'Klaster 3 · Koordinasi Daerah',
-    detail: 'Produser Daerah (semua biro) ↔ Koordinator Daerah.',
-  },
-  {
-    title: 'Eskalasi ke Redaktur',
-    detail: 'Redaktur dapat dichat oleh Produser Pusat, Produser Daerah, Koordinator Liputan, dan Koordinator Daerah.',
-  },
-  {
-    title: 'Eskalasi ke Admin & Super Admin',
-    detail: 'Admin dan Super Admin dapat dichat oleh Produser Pusat, Produser Daerah, Koordinator Liputan, dan Koordinator Daerah.',
-  },
-  {
-    title: 'Kontributor & Magang',
+    title: 'Biro · Didorong ke Pusat',
     detail:
-      'Dapat chat dengan Koordinator Liputan. Magang yang berada di biro juga dapat chat dengan Produser Daerah dari biro yang sama.',
+      'Berita biro yang didorong ke pusat berlanjut ke Koordinator Daerah, lalu ke Produser Pusat. Koordinator Daerah dan Produser Pusat selalu dapat saling chat.',
+  },
+  {
+    title: 'Pusat · Reporter Pusat → Koordinator Liputan → Produser Pusat',
+    detail: 'Reporter Pusat berkoordinasi lewat Koordinator Liputan, lalu ke Produser Pusat.',
+  },
+  {
+    title: 'Pusat · Kontributor → Koordinator Daerah → Produser Pusat',
+    detail: 'Kontributor berkoordinasi dengan Koordinator Daerah, yang meneruskan ke Produser Pusat.',
+  },
+  {
+    title: 'Eskalasi ke Redaktur / Admin / Super Admin',
+    detail:
+      'Redaktur, Admin, dan Super Admin dapat dichat oleh Produser Pusat, Produser Daerah, Koordinator Liputan, dan Koordinator Daerah.',
+  },
+  {
+    title: 'Magang',
+    detail:
+      'Magang chat dengan Koordinator Liputan; bila berada di biro, juga dengan Produser Daerah dari biro yang sama.',
   },
 ];
 
@@ -83,14 +160,14 @@ export const CHAT_CLUSTERS: ChatClusterInfo[] = [
   {
     key: 'PUSAT',
     label: 'Klaster 2 · Pusat',
-    description: 'Reporter Pusat, Koordinator Liputan, dan Produser Pusat.',
+    description: 'Reporter Pusat ↔ Koordinator Liputan ↔ Produser Pusat (Reporter Pusat tidak langsung ke Produser Pusat).',
     roles: PUSAT_CHAT_ROLES,
   },
   {
     key: 'KOORDINASI_DAERAH',
     label: 'Klaster 3 · Koordinasi Daerah',
-    description: 'Produser Daerah (semua biro) ↔ Koordinator Daerah.',
-    roles: ['PRODUSER_DAERAH', 'KOORDINATOR_DAERAH'],
+    description: 'Produser Daerah (semua biro) ↔ Koordinator Daerah, diteruskan ke Produser Pusat.',
+    roles: ['PRODUSER_DAERAH', 'KOORDINATOR_DAERAH', 'PRODUSER_PUSAT'],
   },
 ];
 
@@ -106,9 +183,8 @@ export function clustersOfRole(role: Role): ChatClusterKey[] {
 }
 
 /**
- * True bila role punya lawan chat. Sejak aturan eskalasi & kontributor/magang ditambahkan,
- * SEMUA role memiliki lawan chat — fungsi ini dipertahankan untuk kompatibilitas dan
- * pengaman bila kelak ada role baru yang belum diatur.
+ * True bila role punya lawan chat. Semua role saat ini memiliki lawan chat; fungsi ini
+ * dipertahankan sebagai pengaman bila kelak ada role baru yang belum diatur.
  */
 export function isChatRole(role: Role): boolean {
   const probe = (otherRole: Role): boolean =>
@@ -116,20 +192,7 @@ export function isChatRole(role: Role): boolean {
       { id: 'a', role, bureauId: 'biro-1' },
       { id: 'b', role: otherRole, bureauId: 'biro-1' }
     );
-  const all: Role[] = [
-    'SUPER_ADMIN',
-    'ADMIN',
-    'REDAKTUR',
-    'PRODUSER_PUSAT',
-    'REPORTER_PUSAT',
-    'PRODUSER_DAERAH',
-    'REPORTER_DAERAH',
-    'KONTRIBUTOR',
-    'MAGANG',
-    'KOORDINATOR_LIPUTAN',
-    'KOORDINATOR_DAERAH',
-  ];
-  return all.some((r) => r !== role && probe(r));
+  return ALL_ROLES.some((r) => r !== role && probe(r));
 }
 
 /**
@@ -139,106 +202,29 @@ export function isChatRole(role: Role): boolean {
  */
 export function canChatBetween(me: ChatActor, other: ChatActor): boolean {
   if (!me.id || !other.id || me.id === other.id) return false;
-  const mine = me.role;
-  const theirs = other.role;
-
-  // --- Klaster 2: seluruh pasangan role pusat ---
-  if (PUSAT_CHAT_ROLES.includes(mine) && PUSAT_CHAT_ROLES.includes(theirs)) return true;
-
-  // --- Klaster 3: Produser Daerah (semua biro) ↔ Koordinator Daerah ---
-  if (
-    (mine === 'PRODUSER_DAERAH' && theirs === 'KOORDINATOR_DAERAH') ||
-    (mine === 'KOORDINATOR_DAERAH' && theirs === 'PRODUSER_DAERAH')
-  ) {
-    return true;
-  }
-
-  // --- Klaster 1: Reporter Daerah ↔ Produser Daerah pada BIRO YANG SAMA ---
-  const reporterProduserDaerah =
-    (mine === 'REPORTER_DAERAH' && theirs === 'PRODUSER_DAERAH') ||
-    (mine === 'PRODUSER_DAERAH' && theirs === 'REPORTER_DAERAH');
-  if (reporterProduserDaerah) {
+  const key = pairKey(me.role, other.role);
+  if (!ALLOWED_PAIRS.has(key)) return false;
+  if (SAME_BUREAU_PAIRS.has(key)) {
     return Boolean(me.bureauId) && me.bureauId === other.bureauId;
   }
-
-  // --- Eskalasi: Redaktur dichat oleh Produser/Koordinator ---
-  if (
-    (mine === 'REDAKTUR' && ESCALATION_CALLERS.includes(theirs)) ||
-    (theirs === 'REDAKTUR' && ESCALATION_CALLERS.includes(mine))
-  ) {
-    return true;
-  }
-
-  // --- Eskalasi: Admin & Super Admin dichat oleh Produser/Koordinator ---
-  if (
-    (ADMIN_ROLES.includes(mine) && ESCALATION_CALLERS.includes(theirs)) ||
-    (ADMIN_ROLES.includes(theirs) && ESCALATION_CALLERS.includes(mine))
-  ) {
-    return true;
-  }
-
-  // --- Kontributor & Magang ↔ Koordinator Liputan ---
-  if (
-    (PEMBIMBING_ROLES.includes(mine) && theirs === 'KOORDINATOR_LIPUTAN') ||
-    (PEMBIMBING_ROLES.includes(theirs) && mine === 'KOORDINATOR_LIPUTAN')
-  ) {
-    return true;
-  }
-
-  // --- Magang di biro ↔ Produser Daerah biro yang sama ---
-  const magangProduserDaerah =
-    (mine === 'MAGANG' && theirs === 'PRODUSER_DAERAH') ||
-    (mine === 'PRODUSER_DAERAH' && theirs === 'MAGANG');
-  if (magangProduserDaerah) {
-    return Boolean(me.bureauId) && me.bureauId === other.bureauId;
-  }
-
-  return false;
+  return true;
 }
 
 /**
  * Kandidat lawan chat (superset) untuk menyusun query efisien.
- * Hasilnya SELALU disaring lagi dengan `canChatBetween`, sehingga kekeliruan di sini
- * tidak dapat membuka akses yang tidak diizinkan — hanya memengaruhi efisiensi query.
+ * Diturunkan dari `CHAT_PAIRS` yang sama dengan `canChatBetween`, lalu hasil query SELALU
+ * disaring lagi dengan `canChatBetween` (lihat getChatPartners) — jadi kekeliruan di sini
+ * tidak dapat membuka akses yang tidak diizinkan, hanya memengaruhi efisiensi query.
  */
 export type PartnerSpec = { roles: Role[]; requireSameBureau?: boolean };
 
 export function partnerSpecsFor(me: ChatActor): PartnerSpec[] {
   const specs: PartnerSpec[] = [];
-  const mine = me.role;
-
-  if (PUSAT_CHAT_ROLES.includes(mine)) {
-    specs.push({ roles: PUSAT_CHAT_ROLES.filter((r) => r !== mine) });
-  }
-  if (mine === 'REPORTER_DAERAH') specs.push({ roles: ['PRODUSER_DAERAH'], requireSameBureau: true });
-  if (mine === 'PRODUSER_DAERAH') {
-    specs.push({ roles: ['REPORTER_DAERAH'], requireSameBureau: true });
-    specs.push({ roles: ['KOORDINATOR_DAERAH'] });
-    specs.push({ roles: ['MAGANG'], requireSameBureau: true });
-    specs.push({ roles: [...ESCALATION_CALLERS.filter((r) => r !== 'PRODUSER_DAERAH'), 'REDAKTUR', ...ADMIN_ROLES] });
-  }
-  if (mine === 'KOORDINATOR_DAERAH') {
-    specs.push({ roles: ['PRODUSER_DAERAH'] });
-    specs.push({ roles: ['REDAKTUR', ...ADMIN_ROLES] });
-  }
-  if (mine === 'KOORDINATOR_LIPUTAN') {
-    specs.push({ roles: ['REDAKTUR', ...ADMIN_ROLES, ...PEMBIMBING_ROLES] });
-  }
-  if (mine === 'PRODUSER_PUSAT') {
-    specs.push({ roles: ['REDAKTUR', ...ADMIN_ROLES] });
-  }
-  if (PEMBIMBING_ROLES.includes(mine)) {
-    specs.push({ roles: ['KOORDINATOR_LIPUTAN'] });
-    if (mine === 'MAGANG') specs.push({ roles: ['PRODUSER_DAERAH'], requireSameBureau: true });
-  }
-  if (mine === 'REDAKTUR' || ADMIN_ROLES.includes(mine)) {
-    specs.push({ roles: [...ESCALATION_CALLERS] });
-  }
-
-  // Buang duplikat role dalam satu spec (mis. saat me.role ikut terdaftar)
-  return specs
-    .map((sp) => ({ ...sp, roles: [...new Set(sp.roles.filter((r) => r !== mine))] }))
-    .filter((sp) => sp.roles.length > 0);
+  const any = [...(ANY_BUREAU_BY_ROLE.get(me.role) ?? [])].filter((r) => r !== me.role);
+  const same = [...(SAME_BUREAU_BY_ROLE.get(me.role) ?? [])].filter((r) => r !== me.role);
+  if (any.length) specs.push({ roles: any });
+  if (same.length) specs.push({ roles: same, requireSameBureau: true });
+  return specs;
 }
 
 /** Apakah pesan masih boleh diedit: hanya pengirimnya, dalam 60 detik pertama. */

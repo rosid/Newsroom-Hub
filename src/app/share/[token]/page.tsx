@@ -4,6 +4,7 @@ import { getOrgSettings } from '@/lib/settings';
 import { verifyShareToken, shareMediaPath, originalFilename } from '@/lib/share';
 import { formatDateTimeID, formatDateShortID } from '@/lib/utils';
 import { KIND_LABELS, ROLE_LABELS } from '@/lib/constants';
+import { kindMeta } from '@/lib/news-kinds';
 import ShareAssetList, { type SharedAsset } from '@/components/share/ShareAssetList';
 import Icon from '@/components/ui/Icon';
 
@@ -101,8 +102,8 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
         <section className="panel p-4">
           <span className="badge badge-accent">Akses Tamu</span>
           <h1 className="mt-2 text-[17px] font-extrabold leading-snug">
-            {asset.news.kind === 'BREAKING' ? (
-              <span className="badge badge-danger mr-1.5 align-middle">BREAKING</span>
+            {asset.news.kind !== 'REGULAR' ? (
+              <span className={`${kindMeta(asset.news.kind).badge} mr-1.5 align-middle`}>{kindMeta(asset.news.kind).short}</span>
             ) : null}
             {asset.news.title}
           </h1>
@@ -166,8 +167,8 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
       <section className="panel p-4">
         <span className="badge badge-accent">Akses Tamu</span>
         <h1 className="mt-2 text-[17px] font-extrabold leading-snug">
-          {news.kind === 'BREAKING' ? (
-            <span className="badge badge-danger mr-1.5 align-middle">BREAKING</span>
+          {news.kind !== 'REGULAR' ? (
+            <span className={`${kindMeta(news.kind).badge} mr-1.5 align-middle`}>{kindMeta(news.kind).short}</span>
           ) : null}
           {news.title}
         </h1>

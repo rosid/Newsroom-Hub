@@ -64,10 +64,21 @@ export const STATUS_BADGE: Record<NewsStatus, string> = {
   PUBLISHED: 'badge badge-brand',
 };
 
-export const KIND_LABELS: Record<NewsKind, string> = {
-  REGULAR: 'Berita Biasa',
-  BREAKING: 'Breaking News',
-};
+// Label jenis berita diambil dari SATU sumber (src/lib/news-kinds.ts) agar tidak bisa
+// berbeda antara form, filter, badge, ekspor, dan notifikasi.
+export { KIND_LABELS, KIND_SHORT } from './news-kinds';
+import { KIND_LABELS as REGISTRY_KIND_LABELS } from './news-kinds';
+
+/**
+ * Jaminan kelengkapan saat COMPILE: bila enum `NewsKind` bertambah (mis. jenis berita baru)
+ * tetapi `news-kinds.ts` belum diperbarui, baris di bawah ini GAGAL di type-check —
+ * bukan diam-diam tampil tanpa label.
+ */
+type KindMissingFromRegistry = Exclude<NewsKind, keyof typeof REGISTRY_KIND_LABELS>;
+const _allKindsRegistered: [KindMissingFromRegistry] extends [never]
+  ? true
+  : ['JENIS BERITA BELUM TERDAFTAR di src/lib/news-kinds.ts', KindMissingFromRegistry] = true;
+void _allKindsRegistered;
 
 export const POOL_LABELS: Record<Pool, string> = {
   PUSAT: 'Pool Pusat',
@@ -130,6 +141,7 @@ export type MenuItem = {
 export const MAIN_MENU: MenuItem[] = [
   { key: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: 'dashboard' },
   { key: 'tabulasi', label: 'Tabulasi Berita', href: '/dashboard/tabulasi', icon: 'list' },
+  { key: 'listing', label: 'Listing Berita', href: '/dashboard/listing', icon: 'rows' },
   { key: 'kirim', label: 'Kirim Berita', href: '/dashboard/kirim', icon: 'send' },
   { key: 'chat', label: 'Chat', href: '/dashboard/chat', icon: 'chat' },
   { key: 'peta', label: 'Peta Sebaran Berita', href: '/dashboard/peta', icon: 'map' },

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import Icon from '@/components/ui/Icon';
 import { AIR_CHANNEL_BADGE, KIND_LABELS, STATUS_BADGE, STATUS_LABELS, ROLE_LABELS } from '@/lib/constants';
+import { kindMeta } from '@/lib/news-kinds';
 import { formatDateTimeID, parseTags } from '@/lib/utils';
 import type { NewsListItem } from '@/lib/news';
 
@@ -45,7 +46,7 @@ export default function NewsTable({
           {items.map((n) => {
             const tags = parseTags(n.tags);
             return (
-              <tr key={n.id} className={n.kind === 'BREAKING' ? 'border-l-2 border-l-[var(--brand)]' : ''}>
+              <tr key={n.id} className={n.kind !== 'REGULAR' ? 'border-l-2 border-l-[var(--brand)]' : ''}>
                 <td>
                   <div className="flex flex-col gap-1">
                     <span className={STATUS_BADGE[n.status]}>{STATUS_LABELS[n.status]}</span>
@@ -58,8 +59,8 @@ export default function NewsTable({
                       href={`/dashboard/tabulasi/berita/${n.id}`}
                       className="text-[13.5px] font-semibold leading-snug hover:text-accent"
                     >
-                      {n.kind === 'BREAKING' ? (
-                        <span className="badge badge-danger mr-1.5 !py-0 align-middle">BREAKING</span>
+                      {n.kind !== 'REGULAR' ? (
+                        <span className={`${kindMeta(n.kind).badge} mr-1.5 !py-0 align-middle`}>{kindMeta(n.kind).short}</span>
                       ) : null}
                       {n.title}
                     </Link>

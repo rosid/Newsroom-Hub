@@ -3,6 +3,7 @@ import Icon from '@/components/ui/Icon';
 import { RANGE_OPTIONS, buildQuery } from '@/lib/utils';
 import { p } from '@/lib/base';
 import { ROLE_LABELS, STATUS_LABELS } from '@/lib/constants';
+import { NEWS_KINDS } from '@/lib/news-kinds';
 import type { PoolTab } from '@/lib/permissions';
 
 export type FilterOption = { value: string; label: string };
@@ -151,8 +152,11 @@ export default function FilterBar({
           </label>
           <select id="f-kind" name="kind" defaultValue={params.kind ?? ''} className="select">
             <option value="">Semua jenis</option>
-            <option value="BREAKING">Breaking News</option>
-            <option value="REGULAR">Berita Biasa</option>
+            {NEWS_KINDS.map((k) => (
+              <option key={k.value} value={k.value}>
+                {k.label}
+              </option>
+            ))}
           </select>
         </div>
 

@@ -186,7 +186,7 @@ try {
   await page.keyboard.type('JAKARTA — Uji integrasi storage S3-compatible: naskah dikirim bersama footage yang tersimpan di storage cloud.');
   await page.fill('#location', 'Jakarta Pusat');
   await page.selectOption('#province', { label: 'DKI Jakarta' });
-  await page.click('button:has-text("Kirim ke Produser")');
+  await page.click('button:has-text("Kirim Berita")');
   await page.waitForURL(/\/dashboard\/tabulasi\/berita\//, { timeout: 60000 });
   const newsUrl = page.url();
   check('berita dengan lampiran S3 tersimpan', /\/dashboard\/tabulasi\/berita\//.test(newsUrl));
@@ -286,10 +286,29 @@ try {
   check('SVG tetap dikirim dengan nosniff', (svgHeaders['x-content-type-options'] || '') === 'nosniff');
   const pngRes = await page.request.get(`${BASE}/api/media/${localKey}`);
   const pngHeaders = pngRes.headers();
+  // CATATAN (audit E-1): CSP sandbox dipasang lewat next.config.js untuk SELURUH
+  // /api/media/* — termasuk gambar — karena header dari route handler tertimpa oleh header
+  // next.config. Untuk SUBRESOURCE (<img>/<video>) CSP diabaikan browser, jadi syarat
+  // sebenarnya bukan "tanpa header sandbox", melainkan "gambar tetap tampil".
   check(
-    'gambar biasa (PNG) tidak diberi CSP sandbox — tampilan tetap normal',
-    !/sandbox/.test(pngHeaders['content-security-policy'] || ''),
-    pngHeaders['content-security-policy'] || 'tanpa CSP'
+    'gambar biasa (PNG) tetap disajikan (HTTP 200 + content-type gambar)',
+    pngRes.status() === 200 && /^image\//.test(pngHeaders['content-type'] || ''),
+    `HTTP ${pngRes.status()} · ${pngHeaders['content-type'] || '-'}`
+  );
+  const pngRendered = await page.evaluate(
+    (src) =>
+      new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ ok: img.naturalWidth > 0, w: img.naturalWidth });
+        img.onerror = () => resolve({ ok: false, w: 0 });
+        img.src = src;
+      }),
+    `${BASE}/api/media/${localKey}`
+  );
+  check(
+    'gambar tampil normal (CSP sandbox tidak menghalangi subresource)',
+    pngRendered.ok,
+    `naturalWidth=${pngRendered.w}`
   );
   if (svgKey) {
     const txt = Buffer.from('uji berkas non-gambar', 'utf8');

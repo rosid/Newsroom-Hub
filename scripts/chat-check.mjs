@@ -187,8 +187,9 @@ try {
   await withPage('reporter.pusat@newsroom.demo', async (page) => {
     await page.goto(`${BASE}/dashboard/chat`, { waitUntil: 'domcontentloaded' });
     const contacts = (await page.locator('section:has-text("Kontak Klaster Anda") li').allInnerTexts()).join(' | ');
+    // ALUR BARU (Okt 2026): Reporter Pusat → Koordinator Liputan → Produser Pusat.
     check('Reporter Pusat melihat Koordinator Liputan', contacts.includes('Koordinator Liputan'), contacts.slice(0, 80));
-    check('Reporter Pusat melihat Produser Pusat', contacts.includes('Produser Pusat'));
+    check('Reporter Pusat TIDAK melihat Produser Pusat (harus lewat Koordinator Liputan)', !/Produser Pusat/.test(contacts));
     check('Reporter Pusat TIDAK melihat role daerah', !/Produser Daerah|Koordinator Daerah|Reporter Daerah/.test(contacts));
     check('Reporter Pusat TIDAK melihat Admin/Redaktur', !/Admin Redaksi|Redaktur/.test(contacts));
   });
@@ -208,6 +209,9 @@ try {
     const contacts = (await page.locator('section:has-text("Kontak Klaster Anda") li').allInnerTexts()).join(' | ');
     check('Koordinator Daerah melihat Produser Daerah semua biro', contacts.includes('Medan') && contacts.includes('Surabaya'), contacts.slice(0, 100));
     check('Koordinator Daerah TIDAK melihat Reporter Daerah', !contacts.includes('Reporter Daerah'));
+    // Alur baru: Koordinator Daerah adalah perantara ke Produser Pusat, dan menerima Kontributor.
+    check('Koordinator Daerah melihat Produser Pusat (lanjutan alur ke pusat)', /Produser Pusat/.test(contacts), contacts.slice(0, 120));
+    check('Koordinator Daerah melihat Kontributor (alur baru)', /Kontributor/.test(contacts), contacts.slice(0, 120));
     await page.goto(`${BASE}/dashboard/tabulasi`, { waitUntil: 'domcontentloaded' });
     const tabs = (await page.locator('.tab').allInnerTexts()).join(' | ');
     check('hak akses tabulasi Koordinator Daerah setara Produser Pusat', tabs.includes('Tabulasi Pusat') && !tabs.includes('Tabulasi Daerah'), tabs);
@@ -244,17 +248,22 @@ try {
       'Admin TIDAK melihat Reporter/Kontributor/Magang/Redaktur',
       !/Reporter Pusat|Reporter Daerah|Kontributor|Magang|Redaktur/.test(contacts)
     );
-    check('halaman chat Admin menampilkan aturan eskalasi', (await page.locator('text=Eskalasi ke Admin & Super Admin').count()) > 0);
+    check('halaman chat Admin menampilkan aturan eskalasi', (await page.locator('text=Eskalasi ke Redaktur / Admin / Super Admin').count()) > 0);
   });
 
-  // ============ 7. Kontributor: hanya Koordinator Liputan ============
+  // ============ 7. Kontributor: Koordinator Daerah (alur baru Okt 2026) ============
   await withPage('kontributor.bandung@newsroom.demo', async (page) => {
     await page.goto(`${BASE}/dashboard/chat`, { waitUntil: 'domcontentloaded' });
     const contacts = (await page.locator('section:has-text("Kontak Klaster Anda") li').allInnerTexts()).join(' | ');
-    check('Kontributor melihat Koordinator Liputan', contacts.includes('Koordinator Liputan'), contacts.replace(/\s+/g, ' ').slice(0, 90));
+    check('Kontributor melihat Koordinator Daerah (alur baru)', contacts.includes('Koordinator Daerah'), contacts.replace(/\s+/g, ' ').slice(0, 90));
+    check(
+      'Kontributor TIDAK melihat Koordinator Liputan (dialihkan ke Koordinator Daerah)',
+      !/Koordinator Liputan/.test(contacts),
+      contacts.replace(/\s+/g, ' ').slice(0, 90)
+    );
     check(
       'Kontributor TIDAK melihat Produser/Reporter/Magang',
-      !/Produser Pusat|Produser Daerah|Reporter|Magang|Koordinator Daerah/.test(contacts)
+      !/Produser Pusat|Produser Daerah|Reporter|Magang/.test(contacts)
     );
   });
 
@@ -266,6 +275,15 @@ try {
     check('Magang Makassar melihat Produser Daerah biro sendiri (Makassar)', contacts.includes('Makassar'), contacts.replace(/\s+/g, ' ').slice(0, 110));
     check('Magang Makassar TIDAK melihat Produser biro lain', !/Medan|Surabaya/.test(contacts));
   });
+  // ============ 8b. Alur baru: Produser Pusat (Reporter Pusat lewat Koordinator Liputan) ============
+  await withPage('produser.pusat@newsroom.demo', async (page) => {
+    await page.goto(`${BASE}/dashboard/chat`, { waitUntil: 'domcontentloaded' });
+    const contacts = (await page.locator('section:has-text("Kontak Klaster Anda") li').allInnerTexts()).join(' | ');
+    check('Produser Pusat melihat Koordinator Liputan (alur pusat)', /Koordinator Liputan/.test(contacts), contacts.slice(0, 90));
+    check('Produser Pusat TIDAK melihat Reporter Pusat (harus lewat Koordinator Liputan)', !/Reporter Pusat/.test(contacts), contacts.slice(0, 90));
+    check('Produser Pusat melihat Koordinator Daerah (lanjutan alur dari biro)', /Koordinator Daerah/.test(contacts), contacts.slice(0, 90));
+  });
+
   // ============ 9. Alur dua arah relasi baru: Produser Pusat ↔ Redaktur ============
   await withPage('produser.pusat@newsroom.demo', async (page) => {
     await page.goto(`${BASE}/dashboard/chat`, { waitUntil: 'domcontentloaded' });

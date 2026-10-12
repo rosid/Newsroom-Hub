@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PASSWORD_RULES } from './password-rules';
 import { MAX_HERO_TITLE_LENGTH } from './login-content';
+import { DEFAULT_NEWS_KIND, NEWS_KIND_VALUES } from './news-kinds';
 
 /** String tanggal opsional: kosong = tidak diisi (menghindari error "format tanggal tidak valid"). */
 const optionalDate = z
@@ -38,7 +39,7 @@ export const newsFormSchema = z.object({
   script: z.string().trim().min(20, 'Naskah minimal 20 karakter'),
   summary: z.string().trim().max(400).optional().default(''),
   category: z.string().trim().min(1, 'Kategori wajib dipilih'),
-  kind: z.enum(['REGULAR', 'BREAKING']).default('REGULAR'),
+  kind: z.enum(NEWS_KIND_VALUES as [string, ...string[]]).default(DEFAULT_NEWS_KIND),
   location: z.string().trim().min(3, 'Lokasi minimal 3 karakter'),
   province: z.string().trim().optional().default(''),
   city: z.string().trim().optional().default(''),

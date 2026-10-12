@@ -165,6 +165,28 @@ export function canPublish(user: CurrentUser, news: NewsLike): boolean {
   return user.role === 'PRODUSER_DAERAH' && news.authorBureauId === user.bureauId;
 }
 
+/**
+ * Role yang boleh membuka halaman LISTING BERITA (berita biro yang didorong ke pusat).
+ *
+ * Diminta pemilik aplikasi: semua role KECUALI Reporter Daerah, Reporter Pusat,
+ * Kontributor, dan Magang. Admin/Super Admin, Redaktur, Produser (Pusat & Daerah),
+ * serta kedua Koordinator termasuk.
+ *
+ * Ditulis sebagai daftar role YANG DIIZINKAN (allow-list) — bukan daftar pengecualian —
+ * supaya role baru tidak otomatis mendapat akses tanpa keputusan sadar.
+ */
+export const LISTING_ROLES: Role[] = [
+  'SUPER_ADMIN',
+  'ADMIN',
+  'REDAKTUR',
+  'PRODUSER_PUSAT',
+  'PRODUSER_DAERAH',
+  'KOORDINATOR_LIPUTAN',
+  'KOORDINATOR_DAERAH',
+];
+
+export const canViewListing = (u: { role: Role }): boolean => LISTING_ROLES.includes(u.role);
+
 export const canManageUsers = (u: { role: Role }) => isAdmin(u);
 export const canManageBureau = (u: { role: Role }) => isAdmin(u);
 export const canManageMaster = (u: { role: Role }) => isAdmin(u);

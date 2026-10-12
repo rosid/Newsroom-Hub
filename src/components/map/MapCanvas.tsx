@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { p } from '@/lib/base';
+import { NEWS_KINDS, isNewsKind, kindMeta } from '@/lib/news-kinds';
 
 export type MapPoint = {
   id: string;
@@ -20,6 +21,12 @@ export type MapPoint = {
   createdAt: string;
 };
 
+/**
+ * Warna pin pada peta. Jenis berita (Breaking / Wajib Pimpinan / Sales Order) punya
+ * warnanya sendiri dari `news-kinds.ts`; sisanya memakai warna status.
+ */
+const KIND_COLOR: Record<string, string> = Object.fromEntries(NEWS_KINDS.map((k) => [k.value, k.mapColor]));
+
 const COLOR: Record<string, string> = {
   BREAKING: '#e8384a',
   PUBLISHED: '#16a34a',
@@ -29,6 +36,16 @@ const COLOR: Record<string, string> = {
   REJECTED: '#94a3b8',
   DRAFT: '#64748b',
 };
+
+/**
+ * Jenis berita non-biasa diperlakukan sebagai penanda khusus (warna & tanda sendiri),
+ * jenis biasa memakai warna status agar peta tetap terbaca.
+ */
+function colorFor(kind: string | null | undefined, status: string): string {
+  const byKind = KIND_COLOR[String(kind ?? '')];
+  if (byKind && kind !== 'REGULAR') return byKind;
+  return COLOR[status] ?? '#64748b';
+}
 
 export default function MapCanvas({
   points,
@@ -46,7 +63,8 @@ export default function MapCanvas({
 
   const visible = useMemo(() => {
     if (filterKey === 'all') return points;
-    if (filterKey === 'breaking') return points.filter((pt) => pt.kind === 'BREAKING');
+    // Filter jenis: nilai filter = nilai jenis (mis. 'BREAKING', 'WAJIB_PIMPINAN').
+    if (isNewsKind(filterKey)) return points.filter((pt) => pt.kind === filterKey);
     if (filterKey === 'nasional') return points.filter((pt) => pt.isNational);
     if (filterKey === 'pusat') return points.filter((pt) => pt.isPushedToCenter || pt.isNational);
     return points.filter((pt) => pt.status === filterKey);
@@ -87,10 +105,11 @@ export default function MapCanvas({
       const latlngs: [number, number][] = [];
 
       visible.forEach((pt) => {
-        const color = COLOR[pt.kind === 'BREAKING' ? 'BREAKING' : pt.status] ?? '#64748b';
+        const meta = kindMeta(pt.kind);
+        const color = colorFor(pt.kind, pt.status);
         const icon = L.divIcon({
           className: '',
-          html: `<span class="map-pin" style="background:${color}">${pt.kind === 'BREAKING' ? '!' : ''}</span>`,
+          html: `<span class="map-pin" style="background:${color}">${meta.pinMark}</span>`,
           iconSize: [22, 22],
           iconAnchor: [11, 11],
         });

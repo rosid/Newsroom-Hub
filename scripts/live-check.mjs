@@ -304,7 +304,7 @@ try {
     );
   }
   check('detail menyebut 2 lampiran live', (await page.locator('text=2 lampiran').count()) > 0);
-  await page.click('button:has-text("Kirim ke Produser")');
+  await page.click('button:has-text("Kirim Berita")');
   await page.waitForURL(/\/dashboard\/tabulasi\/berita\//, { timeout: 90000 });
 
   // Penanda format broadcast bertahan setelah disimpan & tampil berwarna
@@ -369,14 +369,23 @@ try {
   // (tidak mengirim pesan agar tidak menambah data ke percakapan pengguna).
   await page.goto(`${BASE}/dashboard/chat`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   check('menu & halaman Chat tampil di live', (await page.locator('a.nav-link:has-text("Chat")').count()) > 0);
+  // CATATAN: kartu "Klaster 1/2/3" hanya dirender untuk role yang MEMANG anggota klaster;
+  // live-check masuk sebagai ADMIN (di luar klaster), jadi yang diperiksa adalah daftar
+  // "Aturan chat" (CHAT_RULE_SUMMARIES) yang tampil untuk semua role.
+  const chatRulesText = await page.locator('section:has-text("Aturan chat")').first().innerText();
   check(
-    'halaman chat live menampilkan seluruh aturan (klaster + eskalasi)',
-    (await page.locator('text=Klaster 1 · Biro Daerah').count()) > 0 &&
-      (await page.locator('text=Klaster 2 · Pusat').count()) > 0 &&
-      (await page.locator('text=Klaster 3 · Koordinasi Daerah').count()) > 0 &&
-      (await page.locator('text=Eskalasi ke Redaktur').count()) > 0 &&
-      (await page.locator('text=Eskalasi ke Admin & Super Admin').count()) > 0 &&
-      (await page.locator('text=Kontributor & Magang').count()) > 0
+    'halaman chat live menampilkan seluruh aturan ALUR YANG BERLAKU',
+    /Biro · Reporter Daerah/.test(chatRulesText) &&
+      /Didorong ke Pusat/.test(chatRulesText) &&
+      /Reporter Pusat → Koordinator Liputan/.test(chatRulesText) &&
+      /Kontributor → Koordinator Daerah/.test(chatRulesText) &&
+      /Eskalasi ke Redaktur \/ Admin \/ Super Admin/.test(chatRulesText) &&
+      /Magang/.test(chatRulesText),
+    chatRulesText.replace(/\s+/g, ' ').slice(0, 110)
+  );
+  check(
+    'aturan LAMA sudah tidak ditampilkan (Kontributor & Magang → Koordinator Liputan)',
+    !/Kontributor & Magang/.test(chatRulesText) && !/Dapat chat dengan Koordinator Liputan/.test(chatRulesText)
   );
   // Admin dapat dichat oleh Produser Pusat/Daerah + kedua Koordinator.
   // Catatan: akun Koordinator belum ada pada data live, jadi bagian itu hanya diperiksa

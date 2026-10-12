@@ -5,6 +5,7 @@ import { canViewAllPools } from '@/lib/permissions';
 import { parseDateRange, RANGE_OPTIONS, buildQuery, numberID } from '@/lib/utils';
 import MapCanvas, { type MapPoint } from '@/components/map/MapCanvas';
 import StatsCards from '@/components/news/StatsCards';
+import { NEWS_KINDS } from '@/lib/news-kinds';
 import Icon from '@/components/ui/Icon';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,9 @@ const LEGEND = [
 
 const FILTERS = [
   { key: 'all', label: 'Semua' },
-  { key: 'breaking', label: 'Breaking' },
+  // Chip per jenis berita diambil dari daftar terpusat (news-kinds.ts) — menambah jenis
+  // baru otomatis menambah chip-nya tanpa mengubah berkas ini.
+  ...NEWS_KINDS.filter((k) => k.value !== 'REGULAR').map((k) => ({ key: k.value, label: k.short })),
   { key: 'nasional', label: 'Siaran Nasional' },
   { key: 'pusat', label: 'Didorong ke Pusat' },
   { key: 'PENDING', label: 'Menunggu' },

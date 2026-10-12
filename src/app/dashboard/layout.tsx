@@ -9,6 +9,7 @@ import {
   canManageStorage,
   canManageUsers,
   canViewAudit,
+  canViewListing,
   newsVisibilityWhere,
 } from '@/lib/permissions';
 import { getChatUnreadCount } from '@/lib/chat';
@@ -45,7 +46,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
         bureauName: user.bureau?.name ?? null,
         jobTitle: user.jobTitle ?? null,
       }}
-      mainMenu={MAIN_MENU.map(({ key, label, href, icon }) => ({ key, label, href, icon }))}
+      mainMenu={MAIN_MENU.filter((m) => m.key !== 'listing' || canViewListing(user)).map(
+        ({ key, label, href, icon }) => ({ key, label, href, icon })
+      )}
       settingsMenu={settingsMenu.map(({ key, label, href, icon }) => ({ key, label, href, icon }))}
       pendingCount={pendingCount}
       unreadCount={unread}

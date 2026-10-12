@@ -34,7 +34,10 @@
     "smoke:airing": "bash scripts/run-airing-check.sh",
     "airing:unit": "tsx scripts/airing-unit.ts",
     "smoke:login": "bash scripts/run-login-settings-check.sh",
-    "login:unit": "tsx scripts/login-settings-unit.ts"
+    "login:unit": "tsx scripts/login-settings-unit.ts",
+    "smoke:kinds": "bash scripts/run-news-kinds-check.sh",
+    "smoke:listing": "bash scripts/run-listing-check.sh",
+    "kinds:unit": "tsx scripts/news-kinds-unit.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

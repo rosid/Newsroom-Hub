@@ -233,7 +233,7 @@ try {
 
   await Promise.all([
     page.waitForURL(/\/dashboard\/tabulasi\/berita\//, { timeout: 40000 }),
-    page.click('button:has-text("Kirim ke Produser")'),
+    page.click('button:has-text("Kirim Berita")'),
   ]);
   const newsUrl = page.url();
   check('berita terkirim & masuk halaman detail', /\/dashboard\/tabulasi\/berita\//.test(newsUrl), newsUrl.split('/').pop());

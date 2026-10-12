@@ -50,7 +50,7 @@ try {
     await page.keyboard.type('JAKARTA — Berita uji untuk memverifikasi tombol Tayang Onair dan Tayang Medsos.');
     await page.fill('#location', 'Jakarta Pusat');
     await page.selectOption('#province', { label: 'DKI Jakarta' });
-    await page.click('button:has-text("Kirim ke Produser")');
+    await page.click('button:has-text("Kirim Berita")');
     await page.waitForURL(/\/dashboard\/tabulasi\/berita\//, { timeout: 90000 });
     newsUrl = page.url();
     check('berita uji terkirim (status Menunggu Persetujuan)', (await page.locator('text=Menunggu Persetujuan').count()) > 0);

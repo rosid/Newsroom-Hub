@@ -81,7 +81,7 @@ let newsToken = '';
       storedUrls.every((u) => String(u).startsWith('local:')),
       storedUrls.join(', ')
     );
-    await page.click('button:has-text("Kirim ke Produser")');
+    await page.click('button:has-text("Kirim Berita")');
     await page.waitForURL(/\/dashboard\/tabulasi\/berita\//, { timeout: 60000 });
     check('berita uji dengan lampiran tersimpan', /\/dashboard\/tabulasi\/berita\//.test(page.url()));
 

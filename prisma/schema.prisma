@@ -46,6 +46,8 @@ enum NewsStatus {
 enum NewsKind {
   REGULAR
   BREAKING
+  WAJIB_PIMPINAN
+  SALES_ORDER
 }
 
 enum MediaType {

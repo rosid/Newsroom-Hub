@@ -19,6 +19,7 @@ import {
 import * as buildersModule from '../src/lib/export/builders';
 import * as dataModule from '../src/lib/export/data';
 import { buildCsv } from '../src/lib/export/builders';
+import { NEWS_KINDS } from '../src/lib/news-kinds';
 import { parseDateRange } from '../src/lib/utils';
 import type { NewsStats, ReportBundle } from '../src/lib/news';
 
@@ -170,9 +171,21 @@ check(
   'bersih'
 );
 check(
-  'ringkasan CSV tabulasi memuat jumlah berita & breaking',
-  newsCsvSummary(news, 'Tabulasi Pusat').some(([l, v]) => l === 'Jumlah berita' && v === '2') &&
-    newsCsvSummary(news, 'Tabulasi Pusat').some(([l]) => l === 'Breaking news'),
+  'ringkasan CSV tabulasi memuat jumlah berita',
+  newsCsvSummary(news, 'Tabulasi Pusat').some(([l, v]) => l === 'Jumlah berita' && v === '2'),
+  newsCsvSummary(news, 'Tabulasi Pusat').map(([l, v]) => `${l}=${v}`).join(', ')
+);
+// Ringkasan kini mencantumkan SEMUA jenis berita (bukan hanya "Breaking news"),
+// diambil dari daftar terpusat news-kinds.ts → jenis baru ikut terhitung otomatis.
+check(
+  'ringkasan CSV memuat baris untuk SETIAP jenis berita',
+  NEWS_KINDS.every((k) => newsCsvSummary(news, 'Tabulasi Pusat').some(([l]) => l === k.label)),
+  newsCsvSummary(news, 'Tabulasi Pusat').map(([l, v]) => `${l}=${v}`).join(', ')
+);
+check(
+  'jumlah per jenis dihitung benar (1 Breaking News dari 2 berita)',
+  newsCsvSummary(news, 'Tabulasi Pusat').some(([l, v]) => l === 'Breaking News' && v === '1') &&
+    newsCsvSummary(news, 'Tabulasi Pusat').some(([l, v]) => l === 'Wajib Pimpinan' && v === '0'),
   newsCsvSummary(news, 'Tabulasi Pusat').map(([l, v]) => `${l}=${v}`).join(', ')
 );
 
