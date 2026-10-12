@@ -37,7 +37,8 @@
     "login:unit": "tsx scripts/login-settings-unit.ts",
     "smoke:kinds": "bash scripts/run-news-kinds-check.sh",
     "smoke:listing": "bash scripts/run-listing-check.sh",
-    "kinds:unit": "tsx scripts/news-kinds-unit.ts"
+    "kinds:unit": "tsx scripts/news-kinds-unit.ts",
+    "visibility:unit": "tsx scripts/visibility-unit.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

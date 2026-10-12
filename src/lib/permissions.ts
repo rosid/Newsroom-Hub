@@ -18,6 +18,21 @@ const CENTRAL_ROLES: Role[] = [
   'KOORDINATOR_DAERAH',
 ];
 const REGIONAL_ROLES: Role[] = ['PRODUSER_DAERAH', 'REPORTER_DAERAH', 'KONTRIBUTOR', 'MAGANG'];
+/**
+ * Role yang HANYA boleh melihat berita BUATANNYA SENDIRI — tidak melihat kiriman orang lain,
+ * baik dari biro maupun dari pusat.
+ *
+ * Perubahan Okt 2026 (permintaan pemilik aplikasi). Sebelumnya: Reporter Pusat melihat seluruh
+ * pool pusat, Reporter Daerah & Kontributor melihat biro-nya + pool pusat, dan hanya Magang yang
+ * terbatas pada kiriman sendiri. Sekarang KEEMPAT role ini setara — kiriman sendiri saja.
+ *
+ * Ditulis sebagai satu daftar agar tidak ada perbedaan aturan antar-tempat; jangan menambahkan
+ * pemeriksaan "authorId === user.id" yang tersebar, pakai `seesOnlyOwnNews()`.
+ */
+export const OWN_NEWS_ONLY_ROLES: Role[] = ['REPORTER_PUSAT', 'REPORTER_DAERAH', 'KONTRIBUTOR', 'MAGANG'];
+
+/** True bila role ini hanya boleh melihat berita yang ia buat sendiri. */
+export const seesOnlyOwnNews = (u: { role: Role }): boolean => OWN_NEWS_ONLY_ROLES.includes(u.role);
 /** Status berita pusat yang boleh dilihat oleh pengguna biro daerah. */
 const CENTRAL_VISIBLE_TO_REGION: NewsStatus[] = ['VERIFIED', 'PUBLISHED'];
 
@@ -32,14 +47,19 @@ export const canViewAllPools = (u: { role: Role }) => isAdmin(u);
 /**
  * ATURAN INTI PEMISAHAN POOL:
  * - Admin/Super Admin  : semua pool (monitoring).
- * - Redaktur/Produser/Reporter Pusat : HANYA pool pusat + berita daerah yang
- *   sudah DORONG KE PUSAT. Tidak bisa melihat tabulasi daerah (sesuai permintaan).
- * - Produser/Reporter/Kontributor Daerah : pool biro-nya sendiri + pool pusat
- *   (yang sudah terverifikasi/disiarkan).
- * - Magang : hanya kiriman miliknya sendiri.
+ * - Reporter Pusat/Daerah, Kontributor, Magang : HANYA kiriman miliknya sendiri —
+ *   tidak melihat kiriman orang lain, baik dari biro maupun pusat (lihat OWN_NEWS_ONLY_ROLES).
+ * - Redaktur/Produser Pusat/Koordinator : HANYA pool pusat + berita daerah yang sudah
+ *   DORONG KE PUSAT. Tidak bisa melihat tabulasi daerah (sesuai permintaan).
+ * - Produser Daerah : pool biro-nya sendiri + pool pusat (yang terverifikasi/disiarkan).
  */
 export function newsVisibilityWhere(user: CurrentUser): Prisma.NewsWhereInput {
   if (canViewAllPools(user)) return {};
+
+  // PENTING: diletakkan SEBELUM cabang pusat/daerah. Bila ditaruh sesudahnya, Reporter Pusat
+  // akan lebih dulu mendapat `{ OR: [pool pusat, didorong ke pusat] }` sehingga masih bisa
+  // melihat kiriman orang lain (celah yang justru ingin dihilangkan).
+  if (seesOnlyOwnNews(user)) return { authorId: user.id };
 
   const centralVisible: Prisma.NewsWhereInput = {
     OR: [{ originPool: Pool.PUSAT }, { isPushedToCenter: true }],
@@ -50,9 +70,7 @@ export function newsVisibilityWhere(user: CurrentUser): Prisma.NewsWhereInput {
     return { OR: [{ originPool: Pool.PUSAT }, { isPushedToCenter: true }] };
   }
 
-  if (user.role === 'MAGANG') {
-    return { authorId: user.id };
-  }
+  // (Cabang khusus MAGANG dihapus: Magang sudah ditangani `seesOnlyOwnNews` di atas.)
 
   if (!user.bureauId) {
     // Pengguna daerah tanpa biro: hanya boleh melihat pool pusat.
@@ -66,11 +84,13 @@ export function newsVisibilityWhere(user: CurrentUser): Prisma.NewsWhereInput {
 
 export function canViewNews(user: CurrentUser, news: NewsLike): boolean {
   if (canViewAllPools(user)) return true;
+  // Reporter/Kontributor/Magang: hanya kiriman sendiri — termasuk terhadap rekan SEBIRO.
+  // Dipakai halaman detail, tautan berbagi, dan pemuatan lampiran.
+  if (seesOnlyOwnNews(user)) return news.authorId === user.id;
   if (news.authorId === user.id) return true;
   if (isCentralRole(user.role)) {
     return news.originPool === Pool.PUSAT || news.isPushedToCenter;
   }
-  if (user.role === 'MAGANG') return false;
   if (!user.bureauId) return false;
   if (news.authorBureauId === user.bureauId) return true;
   const isCentralNews = news.originPool === Pool.PUSAT || news.isPushedToCenter;

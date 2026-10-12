@@ -191,6 +191,24 @@ try {
   check('reporter pusat TIDAK melihat tab daerah', !tabs.some((t) => t.includes('Tabulasi Daerah')), tabs.join(' | '));
   const rows = await page.locator('.dtable tbody tr').count();
   check('tabel tabulasi berisi data', rows > 0, `${rows} baris`);
+
+  // ATURAN BARU (Okt 2026): Reporter Pusat HANYA melihat kiriman sendiri — tidak melihat
+  // kiriman orang lain, baik dari pusat maupun biro (termasuk yang didorong ke pusat).
+  const sumberPusat = (await page.locator('.dtable tbody tr').allInnerTexts()).join(' | ');
+  const namaReporterLain = ['Fajar Simbolon', 'Dewi Ayu', 'Rian Hidayat', 'Anisa Putri'];
+  check(
+    'Reporter Pusat tidak melihat nama reporter lain di tabel',
+    !namaReporterLain.some((n) => sumberPusat.includes(n)),
+    namaReporterLain.filter((n) => sumberPusat.includes(n)).join(', ') || 'tidak ada'
+  );
+  // Bukti kuat lewat API (tidak bergantung jumlah data): SEMUA hasil harus milik sendiri.
+  const apiPusat = await (await page.request.get(`${BASE}/api/news/list?tab=pusat&range=all&page=1`)).json();
+  const itemsPusat = apiPusat.items ?? [];
+  check(
+    'API: seluruh hasil untuk Reporter Pusat adalah kirimannya sendiri',
+    itemsPusat.length > 0 && itemsPusat.every((i) => i.authorName === 'Yoga Pratama'),
+    `${itemsPusat.length} item · penulis: ${[...new Set(itemsPusat.map((i) => i.authorName))].slice(0, 3).join(', ')}`
+  );
   await page.goto(`${BASE}/dashboard/tabulasi?range=today`, { waitUntil: 'domcontentloaded' });
   check('filter tanggal "Hari Ini" aktif', (await page.locator('.tab.active').count()) > 0);
 
@@ -288,7 +306,31 @@ try {
   check('reporter daerah melihat tab Tabulasi Daerah', tabsDaerah.some((t) => t.includes('Tabulasi Daerah')), tabsDaerah.join(' | '));
   check('reporter daerah melihat tab Tabulasi Pusat', tabsDaerah.some((t) => t.includes('Tabulasi Pusat')));
   const medanRows = await page.locator('.dtable tbody tr').count();
-  check('tabulasi daerah berisi berita biro', medanRows > 0, `${medanRows} baris`);
+  check('tabulasi Reporter Daerah menampilkan kiriman sendiri', medanRows > 0, `${medanRows} baris`);
+
+  // ATURAN BARU (Okt 2026): Reporter Daerah juga hanya melihat kiriman sendiri — termasuk
+  // TIDAK melihat kiriman rekan sebiro maupun berita pool pusat.
+  const sumberMedan = (await page.locator('.dtable tbody tr').allInnerTexts()).join(' | ');
+  check(
+    'Reporter Daerah tidak melihat nama reporter lain di tabel (termasuk rekan sebiro & pusat)',
+    !['Yoga Pratama', 'Dewi Ayu', 'Rian Hidayat', 'Anisa Putri'].some((n) => sumberMedan.includes(n)),
+    ['Yoga Pratama', 'Dewi Ayu', 'Rian Hidayat', 'Anisa Putri'].filter((n) => sumberMedan.includes(n)).join(', ') || 'tidak ada'
+  );
+  const apiMedan = await (await page.request.get(`${BASE}/api/news/list?tab=daerah&range=all&page=1`)).json();
+  const itemsMedan = apiMedan.items ?? [];
+  check(
+    'API: seluruh hasil untuk Reporter Daerah adalah kirimannya sendiri',
+    itemsMedan.length > 0 && itemsMedan.every((i) => i.authorName === 'Fajar Simbolon'),
+    `${itemsMedan.length} item · penulis: ${[...new Set(itemsMedan.map((i) => i.authorName))].slice(0, 3).join(', ')}`
+  );
+  // Berita pool pusat (VERIFIED) tidak boleh ikut terlihat
+  await page.goto(`${BASE}/dashboard/tabulasi?tab=pusat&range=all`, { waitUntil: 'domcontentloaded' });
+  const pusatUntukMedan = (await page.locator('.dtable tbody tr').allInnerTexts()).join(' | ');
+  check(
+    'Reporter Daerah tidak melihat kiriman reporter pusat di tab pusat',
+    !pusatUntukMedan.includes('Yoga Pratama'),
+    pusatUntukMedan.slice(0, 60).replace(/\s+/g, ' ') || '(kosong)'
+  );
   await page.goto(`${BASE}/dashboard/tabulasi?tab=daerah`, { waitUntil: 'domcontentloaded' });
   const biroTexts = await page.locator('.dtable tbody tr').allInnerTexts();
   check(

@@ -27,6 +27,10 @@ dengan pemisahan tegas antara **Pool Tabulasi Pusat** dan **Pool Tabulasi Daerah
 | Koordinator Daerah | ✅ | ✖ | ✅ + dorongan | ✅ (pool pusat) | ✅ (berita daerah) | ✅ | – |
 
 Aturan kunci:
+0. **Reporter Pusat, Reporter Daerah, Kontributor, dan Magang HANYA melihat kiriman mereka
+   sendiri** — tidak melihat kiriman orang lain, baik dari pusat maupun dari biro (termasuk
+   rekan sebiro). Berita miliknya tetap terlihat pada semua status (Draft … Disiarkan), sehingga
+   hasil validasi dan catatan produser tetap terbaca oleh pembuatnya.
 1. **Produser/Reporter Pusat tidak melihat pool daerah sama sekali** — hanya pool pusat + berita daerah yang **didorong ke pusat**.
 2. Setiap biro hanya melihat **tabulasi daerahnya sendiri** + tabulasi pusat (yang sudah terverifikasi/disiarkan).
 3. Berita daerah yang dinilai layak siaran nasional dapat **“Dorong ke Pool Tabulasi Pusat”** oleh produser biro redaktur/admin.
@@ -540,6 +544,7 @@ npm run smoke:export   # 46 pemeriksaan unit penyusun data (termasuk penetralan 
 npm run smoke:reset    # 37 pemeriksaan unit token/email + 43 pemeriksaan alur lupa kata sandi (termasuk A-1: tautan reset tidak pernah tampil di halaman publik)
 npm run smoke:bureau-users # 45 unit izin + 8 unit penjaga akun (data DB) + 51 integrasi akun biro & pengguna
 npm run smoke:listing  # 46 integrasi halaman Listing Berita (akses per role, kolom, accordion, cari & filter tanggal)
+npm run visibility:unit # 43 pemeriksaan unit aturan visibilitas berita (siapa boleh melihat berita siapa)
 npm run smoke:airing   # 35 pemeriksaan unit tayang + 49 integrasi Tayang Onair/Medsos & laporan kanal
 npm run smoke:login    # 26 pemeriksaan unit konten login + 31 integrasi pengaturan halaman login (Frontpage)
 npm run smoke:kinds    # 18 pemeriksaan unit daftar jenis berita + 23 integrasi (kirim/filter/badge/notifikasi/ekspor)
