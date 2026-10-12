@@ -27,7 +27,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   ]);
 
   const settingsMenu = SETTINGS_MENU.filter((m) => {
-    if (['umum', 'biro', 'kategori', 'email'].includes(m.key)) return canManageBureau(user);
+    if (['umum', 'login', 'biro', 'kategori', 'email'].includes(m.key)) return canManageBureau(user);
     if (m.key === 'pengguna') return canManageUsers(user);
     if (m.key === 'pengguna-biro') return canManageBureauUsers(user);
     if (m.key === 'integrasi') return canManageStorage(user);

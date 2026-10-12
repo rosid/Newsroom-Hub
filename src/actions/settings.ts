@@ -22,10 +22,12 @@ import {
   categorySchema,
   storageSettingsSchema,
   emailSettingsSchema,
+  loginSettingsSchema,
   zodToState,
   type ActionState,
 } from '@/lib/validations';
 import { getSetting, getStoredEmailSettings, getEmailSettings, isEmailConfigured, EMAIL_PROVIDER_LABELS } from '@/lib/settings';
+import { isPublicImageUrl, parseHeroPoints, type LoginSettings } from '@/lib/login-content';
 import { canManageStorage } from '@/lib/permissions';
 import { encryptSecret } from '@/lib/crypto';
 import { getMailBranding, sendMail, testEmailHtml } from '@/lib/mail';
@@ -95,6 +97,65 @@ export async function updateSeoSettingsAction(_prev: ActionState, formData: Form
   await setSetting('seo', { ...(await getSeoSettings()), ...parsed.data });
   await logAudit({ actor: user, action: 'SETTING_SEO_UPDATE', entity: 'Setting', entityId: 'seo' });
   return { ok: true, message: 'Pengaturan SEO tersimpan.' };
+}
+
+/**
+ * Konten halaman login (frontpage): teks panel branding, teks form, gambar hero.
+ *
+ * MEMAKAI SCHEMA SENDIRI (`loginSettingsSchema`) — bukan schema gabungan — supaya form ini
+ * tidak pernah bertabrakan dengan form pengaturan lain. (Bug lama di aplikasi ini: dua form
+ * berbeda memakai satu action/schema sehingga saling menolak karena kolom yang tidak dikirim.)
+ *
+ * Kolom teks yang DIKOSONGKAN akan disembunyikan di halaman login (bukan dikembalikan ke
+ * teks bawaan), sehingga pengelola bebas menyembunyikan bagian tertentu.
+ */
+export async function updateLoginSettingsAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireRole(['SUPER_ADMIN', 'ADMIN']);
+  const parsed = loginSettingsSchema.safeParse({
+    heroBadge: formData.get('heroBadge') ?? '',
+    heroTitle: formData.get('heroTitle') ?? '',
+    heroPoints: formData.get('heroPoints') ?? '',
+    heroFooterNote: formData.get('heroFooterNote') ?? '',
+    heroFooterRights: formData.get('heroFooterRights') ?? '',
+    formTitle: formData.get('formTitle') ?? '',
+    formSubtitle: formData.get('formSubtitle') ?? '',
+    heroImageUrl: formData.get('heroImageUrl') ?? '',
+    heroImageOpacity: formData.get('heroImageOpacity') ?? '55',
+  });
+  if (!parsed.success) return zodToState(parsed.error);
+  const d = parsed.data;
+
+  const opacity = Math.max(0, Math.min(100, Number(d.heroImageOpacity) || 0));
+  const next: LoginSettings = {
+    heroBadge: d.heroBadge,
+    heroTitle: d.heroTitle,
+    heroPoints: d.heroPoints,
+    heroFooterNote: d.heroFooterNote,
+    heroFooterRights: d.heroFooterRights,
+    formTitle: d.formTitle,
+    formSubtitle: d.formSubtitle,
+    heroImageUrl: d.heroImageUrl,
+    heroImageOpacity: opacity,
+  };
+
+  await setSetting('login', next);
+  await logAudit({
+    actor: user,
+    action: 'SETTING_LOGIN_UPDATE',
+    entity: 'Setting',
+    entityId: 'login',
+    meta: {
+      hasHeroImage: Boolean(next.heroImageUrl),
+      heroImageOpacity: opacity,
+      points: parseHeroPoints(next.heroPoints).length,
+    },
+  });
+  return {
+    ok: true,
+    message: isPublicImageUrl(next.heroImageUrl)
+      ? 'Tampilan halaman login tersimpan.'
+      : 'Tampilan halaman login tersimpan. Perhatian: belum ada gambar hero yang dipakai.',
+  };
 }
 
 export async function updateEditorialSettingsAction(_prev: ActionState, formData: FormData): Promise<ActionState> {

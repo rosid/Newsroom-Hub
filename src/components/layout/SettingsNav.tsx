@@ -17,7 +17,7 @@ const ITEMS = [
 
 export default function SettingsNav({ user, active }: { user: CurrentUser; active: string }) {
   const allowed = ITEMS.filter((i) => {
-    if (['umum', 'biro', 'kategori', 'email'].includes(i.key)) return canManageBureau(user);
+    if (['umum', 'login', 'biro', 'kategori', 'email'].includes(i.key)) return canManageBureau(user);
     if (i.key === 'integrasi') return canManageStorage(user);
     if (i.key === 'pengguna') return canManageUsers(user);
     if (i.key === 'pengguna-biro') return canManageBureauUsers(user);

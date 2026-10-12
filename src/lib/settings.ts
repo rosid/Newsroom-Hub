@@ -1,5 +1,6 @@
 import { unstable_cache, revalidateTag } from 'next/cache';
 import { prisma } from './prisma';
+import { DEFAULT_LOGIN, type LoginSettings } from './login-content';
 
 export type OrgSettings = {
   siteName: string;
@@ -78,6 +79,13 @@ export async function setSetting(key: string, value: unknown): Promise<void> {
 }
 
 export const getOrgSettings = () => getSetting<OrgSettings>('org', DEFAULT_ORG);
+
+/**
+ * Konten halaman login (frontpage) — teks panel branding, teks form, dan gambar hero.
+ * Disimpan pada Setting `login` (JSON) sehingga tidak perlu migrasi database.
+ * Tipe & nilai bawaannya ada di `login-content.ts` (modul client-safe).
+ */
+export const getLoginSettings = () => getSetting<LoginSettings>('login', DEFAULT_LOGIN);
 
 export const getSeoSettings = () =>
   getSetting<SeoSettings>('seo', {

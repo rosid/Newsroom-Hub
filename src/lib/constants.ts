@@ -140,6 +140,7 @@ export const MAIN_MENU: MenuItem[] = [
 
 export const SETTINGS_MENU = [
   { key: 'umum', label: 'Identitas & Tampilan', href: '/dashboard/pengaturan', icon: 'cog' },
+  { key: 'login', label: 'Halaman Login', href: '/dashboard/pengaturan/login', icon: 'eye' },
   { key: 'biro', label: 'Biro Daerah', href: '/dashboard/pengaturan/biro', icon: 'building' },
   { key: 'kategori', label: 'Kategori Berita', href: '/dashboard/pengaturan/kategori', icon: 'tag' },
   { key: 'pengguna', label: 'Pengguna & Hak Akses', href: '/dashboard/pengaturan/pengguna', icon: 'users' },

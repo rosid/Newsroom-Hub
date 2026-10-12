@@ -87,9 +87,18 @@ Alur status: `DRAFT → PENDING → VERIFIED → PUBLISHED` (plus `REVISION` dan
 - **Akun Biro (Produser Daerah)** — Produser Daerah dapat **membuat & mengelola akun Reporter Daerah, Magang,
   dan Kontributor di biro-nya sendiri** dari halaman `Pengaturan → Akun Biro Saya` (tanpa perlu admin pusat).
 - **Pengaturan** — Identitas & tampilan (nama, logo, lebar logo, warna tema + preset, tema bawaan),
-  SEO, kebijakan editorial, **Biro Daerah**, **Kategori Berita**, **Pengguna & Hak Akses**,
+  **Halaman Login (Frontpage)** — lihat di bawah, SEO, kebijakan editorial, **Biro Daerah**,
+  **Kategori Berita**, **Pengguna & Hak Akses**,
   **Storage & Integrasi**, **Log Aktivitas (audit)**, serta **Akun & Profil** untuk semua role
   (profil + ganti sandi dengan indikator kekuatan).
+- **Pengaturan Halaman Login (`Pengaturan → Halaman Login`)** — seluruh teks halaman login dapat diubah
+  tanpa mengubah kode: badge, judul besar (dua warna lewat penanda `[[brand]]` & `{{accent}}`),
+  poin penjelasan (satu per baris, maks 6), catatan kaki kiri/kanan, judul & keterangan form masuk.
+  Ditambah **gambar latar (hero)** opsional dengan pengatur kepekatan lapisan gelap, dan **logo** dari
+  Identitas & Tampilan (bila kosong → lambang huruf). Kolom yang dikosongkan akan **disembunyikan**
+  (bukan kembali ke teks bawaan). Gambar harus berupa **URL publik/CDN** karena halaman login dibuka
+  tanpa login — `/api/media/...` mewajibkan sesi, sehingga nilai `local:`/`s3:` ditolak dengan pesan jelas.
+  Field gambar punya tombol **Unggah** (memakai pengaturan Storage & Integrasi).
 - **Dark & Light Mode** + **lonceng notifikasi** di header.
 
 ---
@@ -497,11 +506,13 @@ npm run smoke:export   # 46 pemeriksaan unit penyusun data (termasuk penetralan 
 npm run smoke:reset    # 37 pemeriksaan unit token/email + 43 pemeriksaan alur lupa kata sandi (termasuk A-1: tautan reset tidak pernah tampil di halaman publik)
 npm run smoke:bureau-users # 45 unit izin + 8 unit penjaga akun (data DB) + 51 integrasi akun biro & pengguna
 npm run smoke:airing   # 35 pemeriksaan unit tayang + 49 integrasi Tayang Onair/Medsos & laporan kanal
+npm run smoke:login    # 26 pemeriksaan unit konten login + 31 integrasi pengaturan halaman login (Frontpage)
 npm run reset:unit     # hanya uji unit token reset & pengaturan email (butuh DB salinan /tmp)
 npm run export:unit    # hanya uji unit penyusun data ekspor (tanpa browser)
 npm run cues:unit      # hanya uji unit sanitasi chip penanda (tanpa browser)
 npm run chat:unit      # hanya uji unit aturan klaster & batas edit (tanpa browser)
 npm run share:unit     # hanya uji unit token berbagi (tanpa browser)
+npm run login:unit     # hanya uji unit konten halaman login (parser judul, poin, validasi)
 npm run smoke:cards    # khusus tampilan kartu (grid 4 kolom + muat 20 kartu lagi)
 npm run smoke:live     # 93 pemeriksaan terhadap aplikasi yang sudah dipublikasikan
 npm run db:clean-test  # bersihkan artefak data uji (bila menjalankan uji pada DB aplikasi)

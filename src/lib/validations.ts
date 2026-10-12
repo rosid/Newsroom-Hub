@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PASSWORD_RULES } from './password-rules';
+import { MAX_HERO_TITLE_LENGTH } from './login-content';
 
 /** String tanggal opsional: kosong = tidak diisi (menghindari error "format tanggal tidak valid"). */
 const optionalDate = z
@@ -247,6 +248,48 @@ export const orgSettingsSchema = z.object({
 export const seoSettingsSchema = z.object({
   title: z.string().trim().min(3, 'Judul SEO minimal 3 karakter'),
   description: z.string().trim().max(300).optional().default(''),
+});
+
+/**
+ * Konten halaman login (frontpage).
+ *
+ * Semua kolom teks dibatasi panjangnya agar tata letak panel tidak rusak; kolom teks
+ * pendek boleh dikosongkan dan akan disembunyikan di halaman login (bukan diganti teks
+ * bawaan), sehingga pengelola bisa memilih menampilkan bagian tertentu saja.
+ */
+export const loginSettingsSchema = z.object({
+  heroBadge: z.string().trim().max(60, 'Teks badge maksimal 60 karakter').optional().default(''),
+  heroTitle: z
+    .string()
+    .trim()
+    .max(MAX_HERO_TITLE_LENGTH, `Judul maksimal ${MAX_HERO_TITLE_LENGTH} karakter`)
+    .optional()
+    .default(''),
+  heroPoints: z.string().max(1200, 'Poin penjelasan terlalu panjang').optional().default(''),
+  heroFooterNote: z.string().trim().max(120).optional().default(''),
+  heroFooterRights: z.string().trim().max(120).optional().default(''),
+  formTitle: z
+    .string()
+    .trim()
+    .max(80, 'Judul form maksimal 80 karakter')
+    .optional()
+    .default(''),
+  formSubtitle: z.string().trim().max(300, 'Keterangan form maksimal 300 karakter').optional().default(''),
+  // WAJIB diawali http:// atau https:// bila diisi. Bukan sekadar `.url()`: zod menerima
+  // nilai seperti `local:2026/01/a.jpg` sebagai URL, padahal nilai semacam itu hanya bisa
+  // dilayani /api/media (butuh sesi) sehingga TIDAK akan tampil di halaman login publik.
+  heroImageUrl: z
+    .string()
+    .trim()
+    .optional()
+    .default('')
+    .refine((v) => v === '' || /^https?:\/\//i.test(v), {
+      message: 'URL gambar harus diawali http:// atau https:// (harus dapat dibuka tanpa login)',
+    }),
+  heroImageOpacity: z
+    .union([z.literal(''), z.string().regex(/^\d{1,3}$/, 'Kepekatan harus berupa angka 0–100')])
+    .optional()
+    .default('55'),
 });
 
 export const storageSettingsSchema = z

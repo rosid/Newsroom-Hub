@@ -7,6 +7,7 @@ import {
 } from '@/actions/settings';
 import ActionForm from '@/components/forms/ActionForm';
 import ColorPresets from '@/components/forms/ColorPresets';
+import ImageUrlField from '@/components/forms/ImageUrlField';
 import SettingsNav from '@/components/layout/SettingsNav';
 import Icon from '@/components/ui/Icon';
 
@@ -89,17 +90,12 @@ export default async function PengaturanPage() {
               <input id="address" name="address" className="input" defaultValue={org.address} />
             </div>
             <div>
-              <label className="label" htmlFor="logoUrl">
-                URL logo (opsional)
-              </label>
-              <input
-                id="logoUrl"
+              <ImageUrlField
                 name="logoUrl"
-                className="input"
-                placeholder="https://…/logo.png"
                 defaultValue={org.logoUrl}
+                label="Logo newsroom (opsional)"
+                hint="Harus URL publik (CDN). Kosongkan untuk memakai lambang huruf bawaan. Logo tampil di halaman login & sidebar."
               />
-              <p className="hint">Kosongkan untuk memakai lambang huruf “G” bawaan.</p>
             </div>
             <div>
               <label className="label" htmlFor="defaultTheme">

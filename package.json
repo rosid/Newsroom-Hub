@@ -32,7 +32,9 @@
     "smoke:bureau-users": "bash scripts/run-bureau-user-check.sh",
     "bureau-users:unit": "tsx scripts/bureau-user-unit.ts",
     "smoke:airing": "bash scripts/run-airing-check.sh",
-    "airing:unit": "tsx scripts/airing-unit.ts"
+    "airing:unit": "tsx scripts/airing-unit.ts",
+    "smoke:login": "bash scripts/run-login-settings-check.sh",
+    "login:unit": "tsx scripts/login-settings-unit.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
