@@ -100,6 +100,78 @@ export const getEditorialSettings = () =>
     pushToCenterRoles: ['PRODUSER_DAERAH', 'REDAKTUR', 'ADMIN', 'SUPER_ADMIN'],
   });
 
+// ===================== PENGATURAN KEAMANAN =====================
+/**
+ * Pengaturan keamanan (Pengaturan -> Keamanan):
+ *  1. Turnstile Cloudflare di halaman login (ON/OFF terpisah dari kuncinya),
+ *  2. Login throttling (jumlah percobaan, jendela waktu, lama blokir),
+ *  3. Umur sesi / auto logout (bawaan 3x24 jam = 72 jam).
+ *
+ * Secret Turnstile disimpan TERENKRIPSI (AES-256-GCM, kunci dari secret aplikasi) dan tidak
+ * pernah dikirim balik ke browser — pola yang sama dengan pengaturan email & storage.
+ */
+export type StoredSecuritySettings = {
+  /** ON/OFF Turnstile. Dipisah dari kunci supaya bisa dimatikan tanpa menghapus kunci. */
+  turnstileEnabled: boolean;
+  turnstileSiteKey: string;
+  /** Secret key TERENKRIPSI. */
+  turnstileSecretEnc: string;
+  /** Login throttling: jumlah percobaan yang diizinkan dalam satu jendela waktu. */
+  throttleMaxAttempts: number;
+  /** Panjang jendela waktu (menit). */
+  throttleWindowMinutes: number;
+  /** Lama blokir setelah percobaan melebihi batas (menit). */
+  throttleBlockMinutes: number;
+  /** Umur sesi (jam) — auto logout. Bawaan 72 jam = 3x24 jam. */
+  sessionHours: number;
+};
+
+export const DEFAULT_SECURITY: StoredSecuritySettings = {
+  turnstileEnabled: false,
+  turnstileSiteKey: '',
+  turnstileSecretEnc: '',
+  throttleMaxAttempts: 5,
+  throttleWindowMinutes: 10,
+  throttleBlockMinutes: 10,
+  sessionHours: 72,
+};
+
+/** Batas nilai yang boleh dimasukkan lewat panel (dipakai validasi & penjagaan runtime). */
+export const SECURITY_LIMITS = {
+  attempts: { min: 1, max: 50 },
+  windowMinutes: { min: 1, max: 1440 },
+  blockMinutes: { min: 1, max: 1440 },
+  sessionHours: { min: 1, max: 720 }, // maks 30 hari
+};
+
+export async function getStoredSecuritySettings(): Promise<StoredSecuritySettings> {
+  const stored = await getSetting<Partial<StoredSecuritySettings>>('security', {});
+  return { ...DEFAULT_SECURITY, ...stored };
+}
+
+/** Pengaturan keamanan siap pakai (secret Turnstile sudah didekripsi). */
+export type SecuritySettings = Omit<StoredSecuritySettings, 'turnstileSecretEnc'> & {
+  turnstileSecret: string;
+};
+
+export async function getSecuritySettings(): Promise<SecuritySettings> {
+  const s = await getStoredSecuritySettings();
+  const { decryptSecret } = await import('./crypto');
+  const { turnstileSecretEnc, ...rest } = s;
+  return { ...rest, turnstileSecret: decryptSecret(turnstileSecretEnc) };
+}
+
+/** Turnstile siap dipakai: dinyalakan DAN kunci lengkap. */
+export const isTurnstileReady = (s: Pick<SecuritySettings, 'turnstileEnabled' | 'turnstileSiteKey' | 'turnstileSecret'>) =>
+  s.turnstileEnabled && Boolean(s.turnstileSiteKey.trim()) && Boolean(s.turnstileSecret.trim());
+
+/** Umur sesi dalam detik (dipakai cookie & pemeriksaan absolut di session.ts). */
+export async function getSessionMaxAgeSeconds(): Promise<number> {
+  const s = await getStoredSecuritySettings();
+  const hours = Math.max(SECURITY_LIMITS.sessionHours.min, Math.min(SECURITY_LIMITS.sessionHours.max, Number(s.sessionHours) || 72));
+  return hours * 60 * 60;
+}
+
 // ===================== PENGATURAN EMAIL (SMTP / HTTP API) =====================
 
 // Tipe & label provider diambil dari modul client-safe agar tidak ada duplikasi

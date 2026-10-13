@@ -159,6 +159,7 @@ export const SETTINGS_MENU = [
   { key: 'pengguna-biro', label: 'Akun Biro Saya', href: '/dashboard/pengaturan/pengguna-biro', icon: 'users' },
   { key: 'integrasi', label: 'Storage & Integrasi', href: '/dashboard/pengaturan/integrasi', icon: 'cloud' },
   { key: 'email', label: 'Email & Notifikasi', href: '/dashboard/pengaturan/email', icon: 'send' },
+  { key: 'keamanan', label: 'Keamanan', href: '/dashboard/pengaturan/keamanan', icon: 'lock' },
   { key: 'audit', label: 'Log Aktivitas', href: '/dashboard/pengaturan/audit', icon: 'shield' },
   { key: 'akun', label: 'Akun & Profil Saya', href: '/dashboard/akun', icon: 'user' },
 ];

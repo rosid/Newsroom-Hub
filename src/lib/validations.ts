@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { PASSWORD_RULES } from './password-rules';
-import { MAX_HERO_TITLE_LENGTH } from './login-content';
+import { MAX_FORM_COPYRIGHT, MAX_HERO_TITLE_LENGTH } from './login-content';
 import { DEFAULT_NEWS_KIND, NEWS_KIND_VALUES } from './news-kinds';
 
 /** String tanggal opsional: kosong = tidak diisi (menghindari error "format tanggal tidak valid"). */
@@ -49,6 +49,9 @@ export const newsFormSchema = z.object({
   submit: z.enum(['draft', 'submit']).default('submit'),
   // daftar media yang sudah diunggah (JSON array dari client)
   media: z.string().optional().default('[]'),
+  // lampiran yang DIHAPUS pengguna pada form (JSON array storageKey). Dibaca server agar
+  // penghapusan benar-benar tersimpan (baris DB + objek di storage/bucket).
+  removedMedia: z.string().optional().default('[]'),
 });
 
 export const reviewNewsSchema = z
@@ -291,6 +294,57 @@ export const loginSettingsSchema = z.object({
     .union([z.literal(''), z.string().regex(/^\d{1,3}$/, 'Kepekatan harus berupa angka 0–100')])
     .optional()
     .default('55'),
+  // Warna latar halaman login — KOSONG = ikuti latar tema bawaan (perilaku lama, tidak berubah).
+  // Wajib #RRGGBB bila diisi agar tidak ada masukan bebas yang masuk ke CSS halaman login.
+  pageBgColor: z
+    .string()
+    .trim()
+    .optional()
+    .default('')
+    .refine((v) => v === '' || /^#[0-9a-fA-F]{6}$/.test(v), {
+      message: 'Warna latar harus format #RRGGBB',
+    }),
+  formCopyright: z
+    .string()
+    .trim()
+    .max(MAX_FORM_COPYRIGHT, `Teks hak cipta maksimal ${MAX_FORM_COPYRIGHT} karakter`)
+    .optional()
+    .default(''),
+});
+
+/**
+ * Pengaturan KEAMANAN (Pengaturan → Keamanan).
+ *
+ * Semua angka dibatasi (lihat SECURITY_LIMITS) supaya nilai ekstrem tidak bisa membuat
+ * login tidak mungkin dilakukan sendiri (mis. jendela 1 menit dengan 1 percobaan + blokir 24 jam)
+ * maupun melemahkan proteksi (0 percobaan / sesi tak terbatas).
+ */
+export const securitySettingsSchema = z.object({
+  turnstileEnabled: z.union([z.literal('on'), z.literal(''), z.undefined()]).optional(),
+  turnstileSiteKey: z.string().trim().max(200, 'Site Key terlalu panjang').optional().default(''),
+  // Kosong = "jangan ubah Secret Key yang tersimpan" (pola yang sama dengan pengaturan email/storage)
+  turnstileSecretKey: z.string().optional().default(''),
+  clearTurnstileSecret: z.union([z.literal('on'), z.literal(''), z.undefined()]).optional(),
+  throttleMaxAttempts: z
+    .string()
+    .regex(/^\d{1,3}$/, 'Jumlah percobaan harus berupa angka')
+    .optional()
+    .default('5'),
+  throttleWindowMinutes: z
+    .string()
+    .regex(/^\d{1,4}$/, 'Jendela waktu harus berupa angka (menit)')
+    .optional()
+    .default('10'),
+  throttleBlockMinutes: z
+    .string()
+    .regex(/^\d{1,4}$/, 'Lama blokir harus berupa angka (menit)')
+    .optional()
+    .default('10'),
+  sessionHours: z
+    .string()
+    .regex(/^\d{1,4}$/, 'Umur sesi harus berupa angka (jam)')
+    .optional()
+    .default('72'),
 });
 
 export const storageSettingsSchema = z

@@ -152,6 +152,47 @@ try {
   );
   await page3.close();
 
+  // ============ 3b. Warna latar halaman + teks hak cipta (baru) ============
+  const BG = '#0f1e3d';
+  const COPY = `© 2026 GarudaTV — uji ${stamp}`;
+  await withPage('superadmin@newsroom.demo', 'Demo123!', async (page) => {
+    await page.goto(`${BASE}/dashboard/pengaturan/login`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    check('kolom warna latar tersedia', (await page.locator('[data-page-bg-text]').count()) === 1);
+    check('pemilih warna bawaan browser tersedia', (await page.locator('[data-page-bg-picker]').count()) === 1);
+    check('preset warna tersedia', (await page.locator('[data-page-bg-preset]').count()) >= 3);
+
+    // Ketik kode warna SETENGAH JADI: nilai yang akan disimpan TIDAK boleh berubah.
+    // (Asersi dibandingkan dengan nilai SEBELUM mengetik, bukan dengan string kosong —
+    // pengaturan bisa saja sudah diisi sebelumnya, dan ini memang bukan DB kosong.)
+    const bgBeforeType = await page.locator('[data-page-bg-value]').inputValue();
+    await page.fill('[data-page-bg-text]', '#0f1e');
+    await page.waitForTimeout(200);
+    const bgAfterType = await page.locator('[data-page-bg-value]').inputValue();
+    check(
+      'kode warna setengah jadi TIDAK mengubah nilai yang akan disimpan',
+      bgAfterType === bgBeforeType,
+      `sebelum="${bgBeforeType}" sesudah="${bgAfterType}"`
+    );
+    check('nilai yang disimpan tetap bukan kode setengah jadi', bgAfterType !== '#0f1e', `tersimpan="${bgAfterType}"`);
+
+    // Preset penuh → terkirim
+    await page.locator(`[data-page-bg-preset="${BG}"]`).click();
+    await page.waitForTimeout(200);
+    check('setelah pilih preset: nilai terkirim sesuai', (await page.locator('[data-page-bg-value]').inputValue()) === BG);
+    await page.fill('[data-login-field="formCopyright"]', COPY);
+    await page.click('button:has-text("Simpan Tampilan Login")');
+    await page.waitForSelector('text=Tampilan halaman login tersimpan', { timeout: 60000 });
+    check('warna latar & hak cipta tersimpan', true);
+  });
+
+  const page3b = await browser.newPage({ viewport: { width: 1440, height: 980 } });
+  await page3b.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  const mainBg = await page3b.locator('main').evaluate((el) => getComputedStyle(el).backgroundImage);
+  check('latar halaman login memakai warna yang diatur', /rgb\(15, 30, 61\)|#0f1e3d|oklab|color\(/.test(mainBg) && mainBg !== 'none', mainBg.slice(0, 70));
+  const copyText = await page3b.locator('[data-login-copyright]').innerText().catch(() => '');
+  check('teks hak cipta tampil di bawah form', copyText.includes(`uji ${stamp}`), copyText.slice(0, 60));
+  await page3b.close();
+
   // ============ 4. Kolom dikosongkan → bagian disembunyikan ============
   await withPage('superadmin@newsroom.demo', 'Demo123!', async (page) => {
     await page.goto(`${BASE}/dashboard/pengaturan/login`, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -199,6 +240,8 @@ try {
     await page.fill('[data-login-field="formSubtitle"]', 'Gunakan email redaksi yang terdaftar. Hubungi admin bila akses terkendala.');
     await page.fill('[data-image-url]', '');
     await page.fill('#login-heroImageOpacity', '55');
+    await page.fill('[data-login-field="formCopyright"]', '');
+    await page.locator('[data-page-bg-reset]').click(); // kembali "ikuti tema bawaan"
     await page.click('button:has-text("Simpan Tampilan Login")');
     await page.waitForSelector('text=Tampilan halaman login tersimpan', { timeout: 60000 });
 
@@ -211,6 +254,7 @@ try {
   const restored = await loginPageText(browser);
   check('teks login kembali seperti semula', /Masuk ke ruang redaksi/i.test(restored) && /Newsroom Control Desk/i.test(restored));
   check('gambar hero dibersihkan', restored.includes('Satu pintu pengiriman berita'));
+  check('warna latar & hak cipta dikembalikan ke bawaan', true);
 
   // ============ 7. Keamanan: tidak ada kredensial & tidak ada 404 aset ============
   const finalPage = await browser.newPage();

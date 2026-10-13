@@ -19,14 +19,15 @@ const securityHeaders = [
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      // Turnstile Cloudflare (opsional, diatur di Pengaturan → Keamanan) memuat skrip dari sini.
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
       "style-src 'self' 'unsafe-inline'",
       // peta (tile OpenStreetMap) + media BunnyCDN
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
       "connect-src 'self' https:",
       "media-src 'self' blob: https:",
-      "frame-src 'self' https://www.youtube.com https://youtube.com https://drive.google.com",
+      "frame-src 'self' https://www.youtube.com https://youtube.com https://drive.google.com https://challenges.cloudflare.com",
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'",

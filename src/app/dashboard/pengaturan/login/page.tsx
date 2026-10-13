@@ -5,6 +5,7 @@ import { updateLoginSettingsAction } from '@/actions/settings';
 import { DEFAULT_LOGIN, MAX_HERO_POINTS, parseHeroTitle } from '@/lib/login-content';
 import ActionForm from '@/components/forms/ActionForm';
 import ImageUrlField from '@/components/forms/ImageUrlField';
+import PageBgPicker from '@/components/forms/PageBgPicker';
 import SettingsNav from '@/components/layout/SettingsNav';
 import Icon from '@/components/ui/Icon';
 
@@ -128,11 +129,40 @@ export default async function LoginSettingsPage() {
                   data-login-field="formSubtitle"
                 />
               </div>
+
+              <div>
+                <label className="label" htmlFor="login-formCopyright">
+                  Teks hak cipta di bawah form (opsional)
+                </label>
+                <input
+                  id="login-formCopyright"
+                  name="formCopyright"
+                  className="input"
+                  placeholder="© 2026 GarudaTV. Seluruh hak cipta dilindungi."
+                  defaultValue={login.formCopyright}
+                  data-login-field="formCopyright"
+                />
+                <p className="hint">Kosongkan untuk menyembunyikan baris ini.</p>
+              </div>
             </div>
           </section>
 
           {/* ---------- Kolom kanan: gambar + pratinjau ---------- */}
           <div className="flex flex-col gap-4">
+            <section className="panel shadow-soft p-4">
+              <h2 className="mb-3 flex items-center gap-2 text-[14px] font-bold">
+                <Icon name="image" size={15} className="text-muted" /> Warna Latar Halaman
+              </h2>
+              {/*
+                Terpisah dari tema gelap/terang (tema hanya menentukan warna teks).
+                Memakai pola dua-nilai (draft teks vs warna valid) seperti ColorPresets — penting,
+                karena meneruskan teks setengah jadi ke <input type="color"> membuat browser
+                memaksanya jadi #000000 sehingga warna bisa tersimpan HITAM tanpa disadari
+                (bug lama proyek ini).
+              */}
+              <PageBgPicker defaultColor={login.pageBgColor} />
+            </section>
+
             <section className="panel shadow-soft p-4">
               <h2 className="mb-3 flex items-center gap-2 text-[14px] font-bold">
                 <Icon name="image" size={15} className="text-muted" /> Gambar Latar (Hero)

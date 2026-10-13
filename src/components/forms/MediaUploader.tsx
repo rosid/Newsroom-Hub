@@ -32,6 +32,16 @@ type UploadItem = {
   loaded: number;
   error?: string;
   asset?: UploadedAsset;
+  /**
+   * true = lampiran ini SUDAH tersimpan di database (dari berita yang sedang diubah);
+   * false/undefined = baru diunggah pada sesi ini.
+   *
+   * Dibedakan karena perlakuannya berbeda saat pengguna menekan tombol hapus:
+   * - sudah tersimpan -> dihapus dari DB + storage saat SIMPAN (dilaporkan lewat `removedMedia`)
+   * - baru diunggah   -> belum terpasang di berita mana pun; bila dibuang, objeknya yatim di
+   *                      storage dan tetap perlu dibersihkan (juga lewat `removedMedia`)
+   */
+  existing?: boolean;
   /** Jalur yang benar-benar dipakai untuk berkas ini. */
   via?: 'direct' | 'server';
   /** Alasan mundur ke jalur server (bila unggahan langsung gagal). */
@@ -264,8 +274,19 @@ export default function MediaUploader({
       progress: 100,
       loaded: a.size,
       asset: a,
+      existing: true,
     }))
   );
+  /**
+   * Lampiran yang DIHAPUS pengguna pada sesi ini (storageKey-nya).
+   *
+   * Dikirim ke server lewat input tersembunyi `removedMedia` supaya saat berita disimpan,
+   * server benar-benar menghapus barisnya di database DAN objeknya di storage.
+   * Sebelumnya penghapusan hanya terjadi di tampilan (state React) sehingga berkas
+   * "muncul kembali" setelah disimpan — inilah bug yang diperbaiki.
+   */
+  const [removedKeys, setRemovedKeys] = useState<string[]>([]);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const queueRef = useRef<string[]>([]);
   const filesRef = useRef<Map<string, File>>(new Map());
@@ -388,7 +409,7 @@ export default function MediaUploader({
         const id = uid();
         filesRef.current.set(id, file);
         queueRef.current.push(id);
-        return { id, filename: file.name, size: file.size, status: 'queued', progress: 0, loaded: 0 };
+        return { id, filename: file.name, size: file.size, status: 'queued', progress: 0, loaded: 0, existing: false };
       });
 
       if (newItems.length || rejected.length) setItems((prev) => [...prev, ...newItems, ...rejected]);
@@ -427,6 +448,10 @@ export default function MediaUploader({
   const remove = (id: string) => {
     queueRef.current = queueRef.current.filter((q) => q !== id);
     filesRef.current.delete(id);
+    const target = items.find((it) => it.id === id);
+    // Catat kunci berkasnya agar server dapat menghapus baris DB + objek storage saat simpan.
+    const key = target?.asset?.storageKey;
+    if (key && !removedKeys.includes(key)) setRemovedKeys((prev) => [...prev, key]);
     setItems((prev) => prev.filter((it) => it.id !== id));
   };
 
@@ -441,6 +466,8 @@ export default function MediaUploader({
   return (
     <div className="flex flex-col gap-3">
       <input type="hidden" name={name} value={JSON.stringify(assets)} />
+      {/* Daftar lampiran yang dihapus pengguna — dibaca server saat menyimpan berita. */}
+      <input type="hidden" name="removedMedia" value={JSON.stringify(removedKeys)} data-removed-media />
 
       {/* Area pilih / tarik-lepas */}
       <div

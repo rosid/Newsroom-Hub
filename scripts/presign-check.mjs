@@ -187,6 +187,57 @@ try {
   check('berita uji terkirim dengan lampiran', /\/dashboard\/tabulasi\/berita\//.test(newsUrl), newsUrl.split('/').pop());
   check('detail berita menampilkan lampiran hasil unggahan langsung', (await page.locator('text=1 lampiran').count()) > 0);
 
+  // ---------- 1b. HAPUS lampiran -> objek di BUCKET ikut terhapus ----------
+  // Membuktikan permintaan pemilik aplikasi: berkas yang dihapus benar-benar hilang dari storage,
+  // bukan hanya dari tampilan. Diuji pada jalur S3 (mock) karena di produksi dipakai R2.
+  const newsIdPresign = newsUrl.split('/berita/')[1];
+  const keyOnPage = await page.evaluate(() => {
+    const a = document.querySelector('a[href*="/api/media/"]');
+    const m = /\/api\/media\/([^?"]+)/.exec(a?.getAttribute('href') || '');
+    return m ? decodeURIComponent(m[1]) : '';
+  });
+  check('kunci lampiran terbaca dari halaman detail', Boolean(keyOnPage), keyOnPage.slice(0, 30));
+
+  await page.goto(`${BASE}/dashboard/tabulasi/berita/${newsIdPresign}/edit`, { waitUntil: 'domcontentloaded' });
+  await page.locator('button[title*="dari daftar"]').first().click();
+  await page.waitForTimeout(400);
+  let removedKeysPresign = [];
+  try {
+    removedKeysPresign = JSON.parse((await page.locator('[data-removed-media]').inputValue()) || '[]');
+  } catch {
+    removedKeysPresign = [];
+  }
+  check('berkas yang dihapus tercatat untuk dikirim ke server', removedKeysPresign.length === 1, `${removedKeysPresign.length} kunci`);
+  check('kunci yang dicatat sama dengan lampiran berita', removedKeysPresign[0] === keyOnPage, (removedKeysPresign[0] || '').slice(0, 30));
+
+  // Simpan (mode UBAH tidak berpindah halaman -> tunggu pesan sukses saja)
+  await page.click('button:has-text("Kirim Berita")');
+  await page.waitForSelector('text=berhasil dikirim ke produser, text=Draft disimpan', { timeout: 60000 }).catch(async () => {
+    await page.waitForSelector('text=/berhasil|disimpan/i', { timeout: 60000 });
+  });
+
+  const statsAfterDelete = await mockStats(S3_OK);
+  check(
+    'storage menerima permintaan DELETE untuk objek tersebut',
+    statsAfterDelete.delete >= 1 && statsAfterDelete.lastKeys.some((k) => k.startsWith('DELETE') && k.includes('presign-langsung.mp4')),
+    statsAfterDelete.lastKeys.filter((k) => k.startsWith('DELETE')).slice(-2).join(' | ') || 'tidak ada DELETE'
+  );
+  // Bukti terkuat: objek benar-benar hilang dari mock S3 (HEAD -> 404)
+  const headAfter = await fetch(`https://127.0.0.1:${S3_OK}/${signedOk.key}`, { method: 'HEAD' });
+  check('objek benar-benar hilang dari bucket (HEAD 404)', headAfter.status === 404, `HTTP ${headAfter.status}`);
+
+  // Dan lampiran tidak muncul kembali di halaman detail
+  await page.goto(`${BASE}/dashboard/tabulasi/berita/${newsIdPresign}`, { waitUntil: 'domcontentloaded' });
+  const keysAfterDelete = await page.evaluate(() =>
+    [...document.querySelectorAll('a[href*="/api/media/"]')]
+      .map((a) => {
+        const m = /\/api\/media\/([^?"]+)/.exec(a.getAttribute('href') || '');
+        return m ? decodeURIComponent(m[1]) : '';
+      })
+      .filter(Boolean)
+  );
+  check('lampiran yang dihapus tidak muncul kembali di halaman detail', !keysAfterDelete.includes(keyOnPage), `${keysAfterDelete.length} lampiran tersisa`);
+
   // ---------- 2. Jalur CADANGAN (mock S3 TANPA CORS) ----------
   await setStorage(BAD_ORIGIN);
   await mockReset(S3_BAD);

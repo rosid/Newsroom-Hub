@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/session';
-import { getLoginSettings, getOrgSettings } from '@/lib/settings';
-import { isPublicImageUrl, parseHeroPoints, parseHeroTitle, siteInitial } from '@/lib/login-content';
+import { getLoginSettings, getOrgSettings, getSecuritySettings, isTurnstileReady } from '@/lib/settings';
+import TurnstileScript from '@/components/forms/TurnstileScript';
+import { isPublicImageUrl, loginPageBackground, parseHeroPoints, parseHeroTitle, siteInitial } from '@/lib/login-content';
 import LoginForm from '@/components/forms/LoginForm';
 import Icon from '@/components/ui/Icon';
 
@@ -20,7 +21,9 @@ export const metadata = { title: 'Masuk' };
 export default async function LoginPage() {
   const user = await getCurrentUser();
   if (user) redirect('/dashboard');
-  const [org, login] = await Promise.all([getOrgSettings(), getLoginSettings()]);
+  const [org, login, security] = await Promise.all([getOrgSettings(), getLoginSettings(), getSecuritySettings()]);
+  // Turnstile hanya dimuat bila dinyalakan DAN kuncinya lengkap (lihat isTurnstileReady).
+  const turnstileSiteKey = isTurnstileReady(security) ? security.turnstileSiteKey.trim() : '';
 
   const points = parseHeroPoints(login.heroPoints);
   const titleParts = parseHeroTitle(login.heroTitle);
@@ -28,6 +31,9 @@ export default async function LoginPage() {
   const initial = siteInitial(org.siteName);
   const logo = isPublicImageUrl(org.logoUrl) ? org.logoUrl : '';
   const opacity = Math.max(0, Math.min(100, Number(login.heroImageOpacity) || 0)) / 100;
+  // Latar khusus halaman login (kosong = ikut tema bawaan). Hanya warna tervalidasi
+  // yang masuk ke CSS — lihat loginPageBackground().
+  const pageBg = loginPageBackground(login.pageBgColor);
 
   /** Logo (bila diunggah & berupa URL publik) atau lambang huruf sebagai cadangan. */
   const brandMark = (extraClass: string) =>
@@ -51,7 +57,7 @@ export default async function LoginPage() {
     );
 
   return (
-    <main className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
+    <main className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]" style={pageBg ? { background: pageBg } : undefined}>
       {/* Panel branding */}
       <section className="relative hidden flex-col justify-between overflow-hidden border-r border-line bg-bgdeep p-10 lg:flex">
         {heroImage ? (
@@ -153,7 +159,13 @@ export default async function LoginPage() {
           ) : (
             <div className="mb-6" />
           )}
-          <LoginForm />
+          <TurnstileScript enabled={Boolean(turnstileSiteKey)} />
+          <LoginForm turnstileSiteKey={turnstileSiteKey} />
+          {login.formCopyright ? (
+            <p className="mt-6 text-center text-[11px] text-muted" data-login-copyright>
+              {login.formCopyright}
+            </p>
+          ) : null}
         </div>
       </section>
     </main>

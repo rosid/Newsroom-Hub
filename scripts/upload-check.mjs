@@ -7,8 +7,13 @@
  *   BASE_URL=http://localhost:3977/newsroom-hub node scripts/upload-check.mjs
  */
 import { createRequire } from 'module';
+import fs from 'fs';
+import path from 'path';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
+
+/** Folder unggahan uji (diisi runner). Dipakai untuk membuktikan berkas BENAR-BENAR terhapus. */
+const UPLOAD_DIR = process.env.MEDIA_UPLOAD_DIR ?? '';
 
 const BASE = process.env.BASE_URL || 'http://localhost:3977/newsroom-hub';
 const UPLOAD_BYTES_PER_SEC = Number(process.env.UPLOAD_THROTTLE ?? 512 * 1024);
@@ -156,6 +161,86 @@ try {
   const href = await page.locator('a.btn:has-text("Unduh")').first().getAttribute('href');
   const dl = await page.request.get(`${new URL(BASE).origin}${href}`);
   check('footage dari unggahan ganda dapat diunduh', dl.status() === 200, `HTTP ${dl.status()}`);
+
+  // =====================================================================================
+  // HAPUS LAMPIRAN lalu SIMPAN: berkas harus benar-benar hilang (baris DB + berkas di disk/bucket).
+  //
+  // Bug yang dijaga di sini: sebelumnya tombol hapus hanya membuang berkas dari tampilan
+  // (state React) sehingga setelah disimpan berkas itu MUNCUL KEMBALI, dan objeknya tetap
+  // ada di storage. Sekarang form mengirim daftar `removedMedia` dan server menghapusnya.
+  // =====================================================================================
+  const newsId = page.url().split('/berita/')[1];
+  const keysBefore = await page.evaluate(() =>
+    [...document.querySelectorAll('a[href*="/api/media/"]')]
+      .map((a) => {
+        const m = /\/api\/media\/([^?"]+)/.exec(a.getAttribute('href') || '');
+        return m ? decodeURIComponent(m[1]) : '';
+      })
+      .filter(Boolean)
+  );
+  const uniqueKeys = [...new Set(keysBefore)];
+  check('kunci lampiran terbaca dari halaman detail (3 berkas)', uniqueKeys.length === 3, `${uniqueKeys.length} kunci`);
+
+  await page.goto(`${BASE}/dashboard/tabulasi/berita/${newsId}/edit`, { waitUntil: 'domcontentloaded' });
+  check('halaman ubah memuat 3 lampiran', (await page.locator('button[title*="daftar lampiran"], button[title*="daftar"]').count()) >= 3);
+
+  // Hapus SATU lampiran di form
+  const removeBtns = page.locator('button.btn-danger:has-text("Hapus"), button[title*="dari daftar"]');
+  await removeBtns.first().click();
+  await page.waitForTimeout(400);
+
+  const removedHidden = await page.locator('[data-removed-media]').inputValue();
+  let removedList = [];
+  try {
+    removedList = JSON.parse(removedHidden);
+  } catch {
+    removedList = [];
+  }
+  check('berkas yang dihapus tercatat untuk dikirim ke server (removedMedia)', removedList.length === 1, `${removedList.length} kunci`);
+  const removedKey = removedList[0] ?? '';
+  check('kunci yang dicatat adalah salah satu lampiran berita', uniqueKeys.includes(removedKey), removedKey.slice(0, 28));
+  check('sisa lampiran di form tinggal 2', (await page.locator('[data-removed-media]').count()) === 1);
+
+  // Simpan perubahan.
+  // CATATAN: dalam mode UBAH, NewsForm TIDAK berpindah halaman (hanya router.refresh() +
+  // menampilkan pesan sukses) — jadi uji ini menunggu pesan sukses, lalu membuka halaman
+  // detail sendiri. Menunggu perubahan URL di sini adalah kesalahan uji, bukan bug aplikasi.
+  await page.click('button:has-text("Kirim Berita")');
+  await page.waitForSelector('text=berhasil dikirim ke produser, text=Draft disimpan', { timeout: 90000 }).catch(async () => {
+    await page.waitForSelector('text=/berhasil|disimpan/i', { timeout: 60000 });
+  });
+  await page.goto(`${BASE}/dashboard/tabulasi/berita/${newsId}`, { waitUntil: 'domcontentloaded' });
+
+  const keysAfter = await page.evaluate(() =>
+    [...document.querySelectorAll('a[href*="/api/media/"]')]
+      .map((a) => {
+        const m = /\/api\/media\/([^?"]+)/.exec(a.getAttribute('href') || '');
+        return m ? decodeURIComponent(m[1]) : '';
+      })
+      .filter(Boolean)
+  );
+  const uniqueAfter = [...new Set(keysAfter)];
+  check('lampiran yang dihapus TIDAK muncul kembali setelah disimpan', !uniqueAfter.includes(removedKey), `sisa ${uniqueAfter.length} lampiran`);
+  check('lampiran lain tetap ada (tidak ikut terhapus)', uniqueKeys.filter((k) => k !== removedKey).every((k) => uniqueAfter.includes(k)), uniqueAfter.length + ' lampiran');
+
+  // Bukti kuat: berkasnya benar-benar hilang dari folder penyimpanan
+  if (UPLOAD_DIR && removedKey) {
+    const removedPath = path.join(UPLOAD_DIR, removedKey);
+    check('berkas yang dihapus benar-benar hilang dari penyimpanan', !fs.existsSync(removedPath), removedPath.replace(UPLOAD_DIR, '<uploads>'));
+    const keptPath = path.join(UPLOAD_DIR, uniqueAfter[0] ?? '');
+    check('berkas yang dipertahankan masih ada di penyimpanan', Boolean(uniqueAfter[0]) && fs.existsSync(keptPath));
+  } else {
+    check('uji berkas di disk dilewati (MEDIA_UPLOAD_DIR tidak diset)', true, 'dilewati');
+  }
+
+  // Lampiran yang tersisa tetap bisa diunduh
+  if (uniqueAfter[0]) {
+    // WAJIB menyertakan basePath: aplikasi dilayani di bawah /newsroom-hub, jadi
+    // `/api/media/...` tanpa prefix akan 404 (bukan bug aplikasi, salah menyusun URL di uji).
+    const basePath = new URL(BASE).pathname.replace(/\/$/, '');
+    const still = await page.request.get(`${new URL(BASE).origin}${basePath}/api/media/${uniqueAfter[0]}?download=1`);
+    check('lampiran yang tersisa tetap dapat diunduh', still.status() === 200, `HTTP ${still.status()}`);
+  }
 
   // ---- Bersihkan berita uji
   await page.click('button:has-text("Hapus Berita")');

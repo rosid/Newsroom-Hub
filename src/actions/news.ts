@@ -30,6 +30,7 @@ import {
 import type { MediaType, NewsKind, NewsStatus, Pool, Role } from '@prisma/client';
 import { deleteObject } from '@/lib/storage';
 import { MAX_ATTACHMENTS } from '@/lib/media-limits';
+import { isOurUploadKey } from '@/lib/media-upload';
 import { DEFAULT_NEWS_KIND, kindMeta } from '@/lib/news-kinds';
 
 type MediaInput = {
@@ -67,6 +68,80 @@ function parseMedia(json: string | undefined): MediaInput[] {
   }
 }
 
+/**
+ * Daftar storageKey lampiran yang DIHAPUS pengguna pada form (JSON array).
+ *
+ * Ini yang membuat penghapusan lampiran benar-benar tersimpan: sebelumnya MediaUploader hanya
+ * membuang berkas dari tampilan (state React), sehingga setelah disimpan berkas itu "muncul
+ * kembali" karena barisnya di database tidak pernah dihapus.
+ *
+ * Nilai dari klien TIDAK dipercaya apa adanya — lihat aturan pengamanan di `purgeRemovedMedia`.
+ */
+function parseRemovedKeys(json: string | undefined): string[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    if (!Array.isArray(arr)) return [];
+    return [...new Set(arr.filter((k) => typeof k === 'string' && k.length > 3).map((k) => String(k).trim()))].slice(
+      0,
+      MAX_ATTACHMENTS
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Hapus lampiran yang diminta pengguna: baris `MediaAsset` + objek di storage (termasuk bucket R2).
+ *
+ * Aturan keamanan (jangan dilonggarkan):
+ * - Baris yang dihapus HANYA yang `newsId`-nya berita ini → pengguna tidak bisa menghapus
+ *   lampiran berita lain dengan menebak storageKey.
+ * - Objek storage dihapus hanya bila TIDAK ada baris lain yang memakai key yang sama.
+ * - Key tanpa baris sama sekali = objek yatim dari sesi ini (diunggah lalu dibatalkan); hanya
+ *   dihapus bila berpola key unggahan kita (`isOurUploadKey`), sehingga klien tidak bisa meminta
+ *   penghapusan objek sembarang di bucket.
+ */
+async function purgeRemovedMedia(
+  newsId: string,
+  keys: string[]
+): Promise<{ rows: number; objects: number; orphans: number }> {
+  let rows = 0;
+  let objects = 0;
+  let orphans = 0;
+  for (const key of keys) {
+    const all = await prisma.mediaAsset.findMany({ where: { storageKey: key }, select: { id: true, newsId: true } });
+    const mine = all.filter((r) => r.newsId === newsId);
+
+    if (mine.length) {
+      await prisma.mediaAsset.deleteMany({ where: { id: { in: mine.map((r) => r.id) } } });
+      rows += mine.length;
+      if (all.length === mine.length) {
+        try {
+          await deleteObject(key);
+          objects += 1;
+        } catch (e) {
+          console.warn('[news] gagal hapus objek storage:', key, (e as Error).message);
+        }
+      }
+      continue;
+    }
+
+    if (all.length === 0) {
+      const base = key.split('/').pop() ?? key;
+      if (isOurUploadKey(key, base)) {
+        try {
+          await deleteObject(key);
+          orphans += 1;
+        } catch (e) {
+          console.warn('[news] gagal hapus objek yatim:', key, (e as Error).message);
+        }
+      }
+    }
+  }
+  return { rows, objects, orphans };
+}
+
 async function nextNewsCode(): Promise<string> {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -97,6 +172,7 @@ export async function saveNewsAction(_prev: ActionState, formData: FormData): Pr
     tags: (formData.get('tags') as string) ?? '',
     submit: (formData.get('submit') as string) ?? 'submit',
     media: (formData.get('media') as string) ?? '[]',
+    removedMedia: (formData.get('removedMedia') as string) ?? '[]',
   });
   if (!parsed.success) return zodToState(parsed.error);
   const d = parsed.data;
@@ -212,6 +288,17 @@ export async function saveNewsAction(_prev: ActionState, formData: FormData): Pr
       if (rows.length) await prisma.mediaAsset.createMany({ data: rows });
     }
 
+    // ---- Lampiran yang dihapus pengguna: hapus baris DB + objek di storage (bucket) ----
+    // PENGAMAN: jangan pernah menghapus berkas yang MASIH terpasang di berita ini. Bila klien
+    // (sengaja atau tidak) mengirim key yang sama di `media` dan `removedMedia`, yang menang
+    // adalah "masih terpasang" — mencegah lampiran aktif terhapus tanpa sengaja.
+    const activeKeys = new Set(media.map((m) => m.storageKey));
+    const removedKeys = parseRemovedKeys(d.removedMedia).filter((k) => !activeKeys.has(k));
+    let purged = { rows: 0, objects: 0, orphans: 0 };
+    if (removedKeys.length) {
+      purged = await purgeRemovedMedia(newsId, removedKeys);
+    }
+
     if (status === 'PENDING') {
       await notifyReviewers(user.role, user.bureauId, newsId, d.title, d.kind as NewsKind, user.id);
     }
@@ -221,7 +308,7 @@ export async function saveNewsAction(_prev: ActionState, formData: FormData): Pr
       action: d.id ? 'NEWS_UPDATE' : status === 'PENDING' ? 'NEWS_SUBMIT' : 'NEWS_DRAFT',
       entity: 'News',
       entityId: newsId,
-      meta: { title: d.title, kind: d.kind, media: media.length },
+      meta: { title: d.title, kind: d.kind, media: media.length, removed: removedKeys.length, purged },
     });
   } catch (e) {
     console.error('[news] gagal simpan:', e);

@@ -101,6 +101,18 @@ Alur status: `DRAFT → PENDING → VERIFIED → PUBLISHED` (plus `REVISION` dan
   Pengiriman email diatur di **Pengaturan → Email & Notifikasi** (SMTP atau Resend/Brevo/SendGrid).
 - **Akun Biro (Produser Daerah)** — Produser Daerah dapat **membuat & mengelola akun Reporter Daerah, Magang,
   dan Kontributor di biro-nya sendiri** dari halaman `Pengaturan → Akun Biro Saya` (tanpa perlu admin pusat).
+- **Pengaturan → Keamanan** — perlindungan tambahan yang bisa diatur sendiri:
+  - **Turnstile Cloudflare** di halaman login — tombol **ON/OFF terpisah dari kuncinya** (bisa dimatikan
+    tanpa menghapus Site Key/Secret Key). Secret disimpan **terenkripsi** dan tidak pernah dikirim ke
+    browser. Menyalakan Turnstile tanpa kunci **ditolak** (mencegah semua orang terkunci dari login).
+  - **Login throttling** — jumlah percobaan, jendela waktu, dan lama blokir dapat diatur
+    (bawaan 5 percobaan / 10 menit, blokir 10 menit). Hitungan dipisah per **email + alamat IP**;
+    masih di dalam jendela → percobaan berikutnya diblokir lagi.
+  - **Auto logout** — umur sesi dapat diatur (bawaan **72 jam = 3×24 jam**), dihitung dari
+    **waktu login** (bukan aktivitas terakhir), jadi pengguna yang terus bekerja pun diminta masuk lagi.
+  - **Riwayat login** — IP, waktu, perangkat, dan status (berhasil / sandi salah / diblokir /
+    gagal verifikasi) untuk 60 peristiwa terbaru. Dibaca dari Log Aktivitas, **tanpa tabel baru**.
+
 - **Pengaturan** — Identitas & tampilan (nama, logo, lebar logo, warna tema + preset, tema bawaan),
   **Halaman Login (Frontpage)** — lihat di bawah, SEO, kebijakan editorial, **Biro Daerah**,
   **Kategori Berita**, **Pengguna & Hak Akses**,
@@ -109,8 +121,10 @@ Alur status: `DRAFT → PENDING → VERIFIED → PUBLISHED` (plus `REVISION` dan
 - **Pengaturan Halaman Login (`Pengaturan → Halaman Login`)** — seluruh teks halaman login dapat diubah
   tanpa mengubah kode: badge, judul besar (dua warna lewat penanda `[[brand]]` & `{{accent}}`),
   poin penjelasan (satu per baris, maks 6), catatan kaki kiri/kanan, judul & keterangan form masuk.
-  Ditambah **gambar latar (hero)** opsional dengan pengatur kepekatan lapisan gelap, dan **logo** dari
-  Identitas & Tampilan (bila kosong → lambang huruf). Kolom yang dikosongkan akan **disembunyikan**
+  Ditambah **gambar latar (hero)** opsional dengan pengatur kepekatan lapisan gelap, **warna latar
+  halaman** tersendiri (terpisah dari tema gelap/terang — kosong = ikut tema bawaan, ada pemilih
+  warna + preset + tombol "Ikuti tema bawaan"), **teks hak cipta** di bawah form login, dan **logo**
+  dari Identitas & Tampilan (bila kosong → lambang huruf). Kolom yang dikosongkan akan **disembunyikan**
   (bukan kembali ke teks bawaan). Gambar harus berupa **URL publik/CDN** karena halaman login dibuka
   tanpa login — `/api/media/...` mewajibkan sesi, sehingga nilai `local:`/`s3:` ditolak dengan pesan jelas.
   Field gambar punya tombol **Unggah** (memakai pengaturan Storage & Integrasi).
@@ -535,18 +549,20 @@ Admin/Super Admin (pengaman agar halaman pengelolaan global tidak menjadi jalur 
 ```bash
 npm run smoke:server   # server produksi + 78 pemeriksaan alur utama (termasuk 5 pemeriksaan keamanan login + 7 pemeriksaan ikon lihat-sandi) + 16 tampilan kartu
 npm run smoke:storage  # 33 pemeriksaan integrasi storage S3 (memakai mock S3 lokal, tanpa dependensi tambahan)
-npm run smoke:presign  # 26 pemeriksaan unggahan langsung pre-signed URL (2 mock S3 HTTPS: CORS aktif & tanpa CORS)
+npm run smoke:presign  # 32 pemeriksaan unggahan langsung pre-signed URL + hapus objek di bucket (2 mock S3 HTTPS: CORS aktif & tanpa CORS)
 npm run smoke:share    # 18 pemeriksaan unit token + 34 pemeriksaan unduh & berbagi tamu
-npm run smoke:upload   # 18 pemeriksaan unggah: progres + banyak footage sekaligus
+npm run smoke:upload   # 28 pemeriksaan unggah: progres + banyak footage + HAPUS lampiran (berkas benar-benar terhapus)
 npm run smoke:chat     # 75 pemeriksaan unit aturan (matriks 11 role) + 56 pemeriksaan integrasi chat
 npm run smoke:cues     # 18 pemeriksaan unit sanitasi (termasuk pengerasan CSS/XSS-1) + 27 pemeriksaan panel Format Broadcast
 npm run smoke:export   # 46 pemeriksaan unit penyusun data (termasuk penetralan formula CSV/SAN-1) + 29 pemeriksaan ekspor CSV (+ pembuktian PDF/Excel sudah hilang)
 npm run smoke:reset    # 37 pemeriksaan unit token/email + 43 pemeriksaan alur lupa kata sandi (termasuk A-1: tautan reset tidak pernah tampil di halaman publik)
 npm run smoke:bureau-users # 45 unit izin + 8 unit penjaga akun (data DB) + 51 integrasi akun biro & pengguna
 npm run smoke:listing  # 46 integrasi halaman Listing Berita (akses per role, kolom, accordion, cari & filter tanggal)
+npm run smoke:security # 35 unit (throttle, Turnstile, batas sesi) + 27 integrasi Pengaturan Keamanan & riwayat login
 npm run visibility:unit # 43 pemeriksaan unit aturan visibilitas berita (siapa boleh melihat berita siapa)
+npm run security:unit  # hanya uji unit keamanan (throttle, verifikasi Turnstile, batas sesi)
 npm run smoke:airing   # 35 pemeriksaan unit tayang + 49 integrasi Tayang Onair/Medsos & laporan kanal
-npm run smoke:login    # 26 pemeriksaan unit konten login + 31 integrasi pengaturan halaman login (Frontpage)
+npm run smoke:login    # 40 pemeriksaan unit konten login + 40 integrasi pengaturan halaman login (Frontpage)
 npm run smoke:kinds    # 18 pemeriksaan unit daftar jenis berita + 23 integrasi (kirim/filter/badge/notifikasi/ekspor)
 npm run reset:unit     # hanya uji unit token reset & pengaturan email (butuh DB salinan /tmp)
 npm run export:unit    # hanya uji unit penyusun data ekspor (tanpa browser)

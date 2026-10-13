@@ -11,6 +11,7 @@ const ITEMS = [
   { key: 'pengguna-biro', label: 'Akun Biro Saya', href: '/dashboard/pengaturan/pengguna-biro', icon: 'users' },
   { key: 'integrasi', label: 'Storage & Integrasi', href: '/dashboard/pengaturan/integrasi', icon: 'cloud' },
   { key: 'email', label: 'Email & Notifikasi', href: '/dashboard/pengaturan/email', icon: 'send' },
+  { key: 'keamanan', label: 'Keamanan', href: '/dashboard/pengaturan/keamanan', icon: 'lock' },
   { key: 'audit', label: 'Log Aktivitas', href: '/dashboard/pengaturan/audit', icon: 'shield' },
   { key: 'akun', label: 'Akun & Profil Saya', href: '/dashboard/akun', icon: 'user' },
 ];
@@ -21,7 +22,7 @@ export default function SettingsNav({ user, active }: { user: CurrentUser; activ
     if (i.key === 'integrasi') return canManageStorage(user);
     if (i.key === 'pengguna') return canManageUsers(user);
     if (i.key === 'pengguna-biro') return canManageBureauUsers(user);
-    if (i.key === 'audit') return canViewAudit(user);
+    if (i.key === 'audit' || i.key === 'keamanan') return canViewAudit(user);
     return true;
   });
 

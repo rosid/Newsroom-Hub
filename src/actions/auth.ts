@@ -7,28 +7,15 @@ import { prisma } from '@/lib/prisma';
 import { getSession } from '@/lib/session';
 import { loginSchema, zodToState, type ActionState } from '@/lib/validations';
 import { logAudit } from '@/lib/audit';
+import { getSecuritySettings, isTurnstileReady } from '@/lib/settings';
+import { verifyTurnstileResponse } from '@/lib/turnstile';
+import { checkThrottle, resetThrottle, throttleMessage } from '@/lib/login-throttle';
 
 /**
- * Rate limit in-memory: 5 percobaan / 10 menit per email+IP.
- * (Hilang saat server restart — cukup untuk mencegah brute force dasar.)
+ * Login throttling kini DIATUR DARI PANEL (Pengaturan → Keamanan): jumlah percobaan, jendela
+ * waktu, dan lama blokir. Implementasinya di `lib/login-throttle.ts` (in-memory per proses,
+ * hilang saat restart — cukup untuk brute force dasar tanpa Redis).
  */
-const attempts = new Map<string, { count: number; firstAt: number }>();
-const WINDOW_MS = 10 * 60 * 1000;
-const MAX_ATTEMPTS = 5;
-
-function checkRate(key: string): { blocked: boolean; remaining: number } {
-  const now = Date.now();
-  const entry = attempts.get(key);
-  if (!entry || now - entry.firstAt > WINDOW_MS) {
-    attempts.set(key, { count: 1, firstAt: now });
-    return { blocked: false, remaining: MAX_ATTEMPTS - 1 };
-  }
-  entry.count += 1;
-  if (entry.count > MAX_ATTEMPTS) {
-    return { blocked: true, remaining: 0 };
-  }
-  return { blocked: false, remaining: MAX_ATTEMPTS - entry.count };
-}
 
 export async function loginAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = loginSchema.safeParse({
@@ -39,10 +26,46 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
 
   const h = await headers();
   const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1';
+  const ua = (h.get('user-agent') ?? '').slice(0, 200);
   const rateKey = `${parsed.data.email}|${ip}`;
-  const rate = checkRate(rateKey);
+  const security = await getSecuritySettings();
+
+  // ---- 1. Login throttling (batas dari pengaturan) ----
+  const rate = checkThrottle(rateKey, {
+    maxAttempts: security.throttleMaxAttempts,
+    windowMinutes: security.throttleWindowMinutes,
+    blockMinutes: security.throttleBlockMinutes,
+  });
   if (rate.blocked) {
-    return { ok: false, error: 'Terlalu banyak percobaan masuk. Coba lagi dalam 10 menit.' };
+    await logAudit({
+      actor: null,
+      action: 'LOGIN_DIBLOKIR',
+      entity: 'User',
+      entityId: parsed.data.email,
+      meta: { ip, retryAfterMinutes: rate.retryAfterMinutes, ua },
+    });
+    return { ok: false, error: throttleMessage(rate.retryAfterMinutes) };
+  }
+
+  // ---- 2. Turnstile Cloudflare (bila dinyalakan & kuncinya lengkap) ----
+  // Diperiksa SEBELUM kredensial supaya token tidak bisa dipakai ulang untuk menebak sandi.
+  if (isTurnstileReady(security)) {
+    const token = String(formData.get('cf-turnstile-response') || '');
+    const check = await verifyTurnstileResponse({
+      secret: security.turnstileSecret,
+      token,
+      remoteIp: ip,
+    });
+    if (!check.ok) {
+      await logAudit({
+        actor: null,
+        action: 'LOGIN_TURNSTILE_GAGAL',
+        entity: 'User',
+        entityId: parsed.data.email,
+        meta: { ip, error: check.error ?? '', codes: check.codes ?? [], ua },
+      });
+      return { ok: false, error: check.error ?? 'Verifikasi keamanan gagal.' };
+    }
   }
 
   const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
@@ -54,7 +77,7 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
       action: 'LOGIN_GAGAL',
       entity: 'User',
       entityId: parsed.data.email,
-      meta: { ip },
+      meta: { ip, ua, sisa: rate.remaining },
     });
     return {
       ok: false,
@@ -65,12 +88,15 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
     return { ok: false, error: 'Akun Anda dinonaktifkan. Hubungi admin redaksi.' };
   }
 
-  attempts.delete(rateKey);
+  resetThrottle(rateKey);
   const session = await getSession();
   session.userId = user.id;
   session.email = user.email;
   session.name = user.name;
   session.role = user.role;
+  // Penanda waktu login untuk AUTO LOGOUT ABSOLUT (lihat session.ts). Wajib diisi di sini:
+  // tanpa ini, batas umur sesi tidak dapat dihitung dari waktu login.
+  session.startedAt = Date.now();
   await session.save();
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
@@ -79,7 +105,7 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
     action: 'LOGIN',
     entity: 'User',
     entityId: user.id,
-    meta: { ip },
+    meta: { ip, ua, sessionHours: security.sessionHours },
   });
 
   // Catatan: TIDAK memakai redirect() di dalam server action — Next melakukan

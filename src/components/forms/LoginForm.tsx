@@ -17,8 +17,14 @@ import Icon from '@/components/ui/Icon';
  * langsung dapat masuk sebagai Super Admin/Admin. Daftar akun demo sekarang
  * hanya ada di `README.md` (tidak disajikan ke publik — `/README.md` → 404).
  */
-export default function LoginForm() {
+export default function LoginForm({ turnstileSiteKey = '' }: { turnstileSiteKey?: string } = {}) {
   const router = useRouter();
+  /**
+   * Turnstile Cloudflare — hanya dirender bila Site Key diberikan (server memutuskan
+   * berdasarkan Pengaturan → Keamanan). Token yang dihasilkan widget masuk ke form sebagai
+   * `cf-turnstile-response` dan diverifikasi server SEBELUM kredensial diperiksa.
+   */
+  const turnstileOn = Boolean(turnstileSiteKey);
   const [state, action] = useActionState<ActionState, FormData>(loginAction, {});
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -103,6 +109,16 @@ export default function LoginForm() {
           <Icon name="alert" size={15} className="mt-[1px] shrink-0" />
           <span>{state.error}</span>
         </p>
+      ) : null}
+
+      {turnstileOn ? (
+        <div className="flex flex-col gap-1.5" data-turnstile>
+          {/* Widget Turnstile menyuntikkan dirinya ke elemen ini. */}
+          <div className="cf-turnstile" data-sitekey={turnstileSiteKey} data-theme="auto" />
+          <p className="text-[11px] text-muted">
+            Dilindungi Cloudflare Turnstile. Verifikasi dilakukan sebelum kredensial diperiksa.
+          </p>
+        </div>
       ) : null}
 
       <SubmitButton className="btn btn-primary w-full" pendingText="Memverifikasi…">

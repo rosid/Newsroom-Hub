@@ -32,7 +32,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     if (m.key === 'pengguna') return canManageUsers(user);
     if (m.key === 'pengguna-biro') return canManageBureauUsers(user);
     if (m.key === 'integrasi') return canManageStorage(user);
-    if (m.key === 'audit') return canViewAudit(user);
+    if (m.key === 'audit' || m.key === 'keamanan') return canViewAudit(user);
     return true; // akun
   });
 

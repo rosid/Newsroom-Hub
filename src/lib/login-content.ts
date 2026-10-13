@@ -43,6 +43,16 @@ export type LoginSettings = {
   heroImageUrl: string;
   /** Kepekatan lapisan gelap di atas gambar (0–100). Menjaga teks tetap terbaca. */
   heroImageOpacity: number;
+  /**
+   * Warna latar halaman login (opsional, format #RRGGBB).
+   *
+   * Terpisah dari tema gelap/terang: bila diisi, warna ini dipakai sebagai dasar latar
+   * halaman login dan tema (gelap/terang) hanya menentukan warna teks. Kosongkan untuk
+   * mengikuti latar tema bawaan (perilaku lama).
+   */
+  pageBgColor: string;
+  /** Teks hak cipta di bawah form login (opsional). */
+  formCopyright: string;
 };
 
 export const DEFAULT_LOGIN: LoginSettings = {
@@ -59,10 +69,14 @@ export const DEFAULT_LOGIN: LoginSettings = {
   formSubtitle: 'Gunakan email redaksi yang terdaftar. Hubungi admin bila akses terkendala.',
   heroImageUrl: '',
   heroImageOpacity: 55,
+  pageBgColor: '',
+  formCopyright: '',
 };
 
 /** Batas jumlah poin agar tata letak panel tidak rusak. */
 export const MAX_HERO_POINTS = 6;
+/** Batas panjang teks hak cipta. */
+export const MAX_FORM_COPYRIGHT = 160;
 /** Batas panjang tiap poin. */
 export const MAX_HERO_POINT_LENGTH = 160;
 /** Batas panjang judul besar. */
@@ -124,6 +138,27 @@ export function parseHeroPoints(input: string | null | undefined): string[] {
  */
 export const isPublicImageUrl = (url: string | null | undefined): boolean =>
   /^https?:\/\//i.test(String(url ?? '').trim());
+
+/** Warna heksadesimal #RRGGBB yang valid. */
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/** Apakah nilai ini warna #RRGGBB yang valid? (dipakai form & validasi server) */
+export const isHexColor = (v: string | null | undefined): boolean => HEX_COLOR.test(String(v ?? '').trim());
+
+/**
+ * Nilai CSS `background` untuk halaman login.
+ *
+ * Bila warna latar diatur, dipakai gradasi halus dari warna itu (lebih terang sedikit di atas,
+ * lebih gelap di bawah) agar halaman tidak terlihat datar. Bila kosong → string kosong, dan
+ * halaman login memakai latar tema bawaan (perilaku lama, tidak berubah).
+ *
+ * Hasilnya HANYA memuat warna heksadesimal tervalidasi (tidak ada masukan bebas masuk ke CSS).
+ */
+export function loginPageBackground(color: string | null | undefined): string {
+  const c = String(color ?? '').trim();
+  if (!HEX_COLOR.test(c)) return '';
+  return `linear-gradient(180deg, color-mix(in srgb, ${c} 88%, #fff), color-mix(in srgb, ${c} 82%, #000))`;
+}
 
 /** Label huruf tunggal dari nama situs — dipakai bila logo belum diunggah. */
 export function siteInitial(siteName: string | null | undefined): string {

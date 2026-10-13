@@ -307,6 +307,73 @@ try {
   await page.click('button:has-text("Kirim Berita")');
   await page.waitForURL(/\/dashboard\/tabulasi\/berita\//, { timeout: 90000 });
 
+  // =====================================================================================
+  // HAPUS LAMPIRAN di aplikasi LIVE (storage R2 milik pengguna): berkas harus benar-benar
+  // hilang dari storage, bukan hanya dari tampilan.
+  // Bukti yang dipakai: `?download=1` SELALU dialirkan lewat server (tanpa redirect ke CDN),
+  // sehingga 404 berarti objeknya benar-benar tidak ada lagi di bucket — tidak terpengaruh
+  // cache pull zone (HEAD ke URL CDN bisa saja masih 200 karena cache).
+  // =====================================================================================
+  const liveNewsId = page.url().split('/berita/')[1];
+  const liveKeys = await page.evaluate(() =>
+    [...document.querySelectorAll('a[href*="/api/media/"]')]
+      .map((a) => {
+        const m = /\/api\/media\/([^?"]+)/.exec(a.getAttribute('href') || '');
+        return m ? decodeURIComponent(m[1]) : '';
+      })
+      .filter(Boolean)
+  );
+  const liveUniqueKeys = [...new Set(liveKeys)];
+  check('live: kunci lampiran terbaca dari halaman detail', liveUniqueKeys.length >= 2, `${liveUniqueKeys.length} kunci`);
+  // Hapus lampiran KEDUA (bukan yang pertama): asersi lain di suite ini masih memakai
+  // lampiran pertama ('verifikasi-unduh.png') untuk memeriksa nama berkas saat diunduh.
+  const keyToRemove = liveUniqueKeys.find((k) => k.includes('unduh-2')) ?? liveUniqueKeys[liveUniqueKeys.length - 1] ?? '';
+
+  // Objek memang ada SEBELUM dihapus (kontrol positif agar 404 setelahnya bermakna)
+  const origin = new URL(BASE).origin;
+  const basePath = new URL(BASE).pathname.replace(/\/$/, '');
+  const beforeDl = await page.request.get(`${origin}${basePath}/api/media/${keyToRemove}?download=1`);
+  check('live: lampiran dapat diunduh SEBELUM dihapus (kontrol positif)', beforeDl.status() === 200, `HTTP ${beforeDl.status()}`);
+
+  await page.goto(`${BASE}/dashboard/tabulasi/berita/${liveNewsId}/edit`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  // Tombol hapus ke-2 = lampiran ke-2 (urutan daftar mengikuti urutan lampiran berita).
+  const removeIndex = liveUniqueKeys.indexOf(keyToRemove);
+  await page.locator('button[title*="dari daftar"]').nth(removeIndex).click();
+  await page.waitForTimeout(400);
+  let liveRemoved = [];
+  try {
+    liveRemoved = JSON.parse((await page.locator('[data-removed-media]').inputValue()) || '[]');
+  } catch {
+    liveRemoved = [];
+  }
+  check('live: berkas yang dihapus tercatat untuk dikirim ke server', liveRemoved.length === 1, `${liveRemoved.length} kunci`);
+  check('live: kunci yang dicatat adalah lampiran yang dituju', liveRemoved[0] === keyToRemove, (liveRemoved[0] || '-').slice(-28));
+
+  await page.click('button:has-text("Kirim Berita")');
+  await page.waitForSelector('text=berhasil dikirim ke produser, text=Draft disimpan', { timeout: 90000 }).catch(async () => {
+    await page.waitForSelector('text=/berhasil|disimpan/i', { timeout: 60000 });
+  });
+  await page.goto(`${BASE}/dashboard/tabulasi/berita/${liveNewsId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+  const remainingKeys = await page.evaluate(() =>
+    [...document.querySelectorAll('a[href*="/api/media/"]')]
+      .map((a) => {
+        const m = /\/api\/media\/([^?"]+)/.exec(a.getAttribute('href') || '');
+        return m ? decodeURIComponent(m[1]) : '';
+      })
+      .filter(Boolean)
+  );
+  check('live: lampiran yang dihapus TIDAK muncul kembali setelah disimpan', !remainingKeys.includes(keyToRemove), `${remainingKeys.length} lampiran tersisa`);
+
+  const afterDl = await page.request.get(`${origin}${basePath}/api/media/${keyToRemove}?download=1`);
+  check(
+    'live: objek benar-benar HILANG dari storage R2 (unduhan 404, bukan hanya hilang dari tampilan)',
+    afterDl.status() === 404,
+    `HTTP ${afterDl.status()}`
+  );
+  const keptDl = await page.request.get(`${origin}${basePath}/api/media/${remainingKeys[0]}?download=1`);
+  check('live: lampiran yang dipertahankan masih dapat diunduh', keptDl.status() === 200, `HTTP ${keptDl.status()}`);
+
   // Penanda format broadcast bertahan setelah disimpan & tampil berwarna
   const scriptHtml = await page.locator('.prose-news').first().innerHTML();
   const chipsInDetail = await page.locator('.prose-news .bc-cue').count();

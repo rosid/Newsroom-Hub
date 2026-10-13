@@ -23,10 +23,21 @@ import {
   storageSettingsSchema,
   emailSettingsSchema,
   loginSettingsSchema,
+  securitySettingsSchema,
   zodToState,
   type ActionState,
 } from '@/lib/validations';
-import { getSetting, getStoredEmailSettings, getEmailSettings, isEmailConfigured, EMAIL_PROVIDER_LABELS } from '@/lib/settings';
+import {
+  getSetting,
+  getStoredEmailSettings,
+  getEmailSettings,
+  isEmailConfigured,
+  EMAIL_PROVIDER_LABELS,
+  getStoredSecuritySettings,
+  DEFAULT_SECURITY,
+  SECURITY_LIMITS,
+  type StoredSecuritySettings,
+} from '@/lib/settings';
 import { isPublicImageUrl, parseHeroPoints, type LoginSettings } from '@/lib/login-content';
 import { canManageStorage } from '@/lib/permissions';
 import { encryptSecret } from '@/lib/crypto';
@@ -87,6 +98,92 @@ export async function updateOrgSettingsAction(_prev: ActionState, formData: Form
   return { ok: true, message: 'Identitas & tampilan tersimpan. Muat ulang halaman untuk melihat perubahan warna.' };
 }
 
+/**
+ * Simpan pengaturan KEAMANAN (Turnstile, login throttling, umur sesi).
+ *
+ * CATATAN PENTING soal menyimpan sebagian: form ini memuat SEMUA kolom, jadi tidak ada
+ * masalah "field milik form lain" seperti pada pengaturan `org` yang punya dua form.
+ * Namun Secret Key tetap diperlakukan seperti password: kolom kosong = JANGAN ubah nilai
+ * yang tersimpan (supaya menyimpan ulang tidak menghapus kunci hanya karena kolomnya kosong).
+ */
+export async function updateSecuritySettingsAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const actor = await requireRole(['SUPER_ADMIN', 'ADMIN']);
+  const parsed = securitySettingsSchema.safeParse({
+    turnstileEnabled: (formData.get('turnstileEnabled') as string) ?? undefined,
+    turnstileSiteKey: formData.get('turnstileSiteKey') ?? '',
+    turnstileSecretKey: formData.get('turnstileSecretKey') ?? '',
+    clearTurnstileSecret: (formData.get('clearTurnstileSecret') as string) ?? undefined,
+    throttleMaxAttempts: formData.get('throttleMaxAttempts') ?? '5',
+    throttleWindowMinutes: formData.get('throttleWindowMinutes') ?? '10',
+    throttleBlockMinutes: formData.get('throttleBlockMinutes') ?? '10',
+    sessionHours: formData.get('sessionHours') ?? '72',
+  });
+  if (!parsed.success) return zodToState(parsed.error);
+  const d = parsed.data;
+
+  /** Batasi angka ke rentang aman (validasi kedua di server, bukan hanya di form). */
+  const clamp = (v: string, min: number, max: number, fallback: number) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, Math.round(n)));
+  };
+
+  const stored = await getStoredSecuritySettings();
+  const clear = d.clearTurnstileSecret === 'on';
+  const newSecret = d.turnstileSecretKey.trim();
+  // Kunci TIDAK dihapus bila kolomnya dibiarkan kosong dan tidak diminta dibersihkan.
+  const secretEnc = clear ? '' : newSecret ? encryptSecret(newSecret) : stored.turnstileSecretEnc;
+
+  const next: StoredSecuritySettings = {
+    turnstileEnabled: d.turnstileEnabled === 'on',
+    turnstileSiteKey: d.turnstileSiteKey.trim(),
+    turnstileSecretEnc: secretEnc,
+    throttleMaxAttempts: clamp(d.throttleMaxAttempts, SECURITY_LIMITS.attempts.min, SECURITY_LIMITS.attempts.max, DEFAULT_SECURITY.throttleMaxAttempts),
+    throttleWindowMinutes: clamp(d.throttleWindowMinutes, SECURITY_LIMITS.windowMinutes.min, SECURITY_LIMITS.windowMinutes.max, DEFAULT_SECURITY.throttleWindowMinutes),
+    throttleBlockMinutes: clamp(d.throttleBlockMinutes, SECURITY_LIMITS.blockMinutes.min, SECURITY_LIMITS.blockMinutes.max, DEFAULT_SECURITY.throttleBlockMinutes),
+    sessionHours: clamp(d.sessionHours, SECURITY_LIMITS.sessionHours.min, SECURITY_LIMITS.sessionHours.max, DEFAULT_SECURITY.sessionHours),
+  };
+
+  // Turnstile dinyalakan TANPA kunci lengkap akan mengunci semua orang dari login
+  // (fail-closed di actions/auth.ts). Tolak lebih awal dengan pesan yang jelas.
+  if (next.turnstileEnabled && (!next.turnstileSiteKey || !next.turnstileSecretEnc)) {
+    return {
+      ok: false,
+      error:
+        'Turnstile tidak dapat dinyalakan tanpa Site Key dan Secret Key. Isi keduanya lebih dahulu, atau biarkan tombolnya mati.',
+      fieldErrors: { turnstileSiteKey: 'Wajib diisi bila Turnstile dinyalakan' },
+    };
+  }
+
+  await setSetting('security', next);
+  await logAudit({
+    actor,
+    action: 'SETTING_SECURITY_UPDATE',
+    entity: 'Setting',
+    entityId: 'security',
+    meta: {
+      turnstileEnabled: next.turnstileEnabled,
+      hasSiteKey: Boolean(next.turnstileSiteKey),
+      secretChanged: Boolean(newSecret) || clear,
+      throttleMaxAttempts: next.throttleMaxAttempts,
+      throttleWindowMinutes: next.throttleWindowMinutes,
+      throttleBlockMinutes: next.throttleBlockMinutes,
+      sessionHours: next.sessionHours,
+    },
+  });
+
+  const warnings: string[] = [];
+  if (next.turnstileEnabled) warnings.push('Turnstile AKTIF di halaman login.');
+  const aktif = next.turnstileEnabled ? 'Turnstile aktif. ' : 'Turnstile nonaktif. ';
+  return {
+    ok: true,
+    message:
+      `${aktif}Login throttling: ${next.throttleMaxAttempts} percobaan / ${next.throttleWindowMinutes} menit, blokir ${next.throttleBlockMinutes} menit. ` +
+      `Auto logout setelah ${next.sessionHours} jam (${Math.round(next.sessionHours / 24)} hari). ` +
+      'Pengguna yang sedang login akan mengikuti batas baru pada permintaan berikutnya.',
+  };
+}
+
 export async function updateSeoSettingsAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requireRole(['SUPER_ADMIN', 'ADMIN']);
   const parsed = seoSettingsSchema.safeParse({
@@ -121,6 +218,8 @@ export async function updateLoginSettingsAction(_prev: ActionState, formData: Fo
     formSubtitle: formData.get('formSubtitle') ?? '',
     heroImageUrl: formData.get('heroImageUrl') ?? '',
     heroImageOpacity: formData.get('heroImageOpacity') ?? '55',
+    pageBgColor: formData.get('pageBgColor') ?? '',
+    formCopyright: formData.get('formCopyright') ?? '',
   });
   if (!parsed.success) return zodToState(parsed.error);
   const d = parsed.data;
@@ -136,6 +235,8 @@ export async function updateLoginSettingsAction(_prev: ActionState, formData: Fo
     formSubtitle: d.formSubtitle,
     heroImageUrl: d.heroImageUrl,
     heroImageOpacity: opacity,
+    pageBgColor: d.pageBgColor,
+    formCopyright: d.formCopyright,
   };
 
   await setSetting('login', next);
@@ -147,6 +248,8 @@ export async function updateLoginSettingsAction(_prev: ActionState, formData: Fo
     meta: {
       hasHeroImage: Boolean(next.heroImageUrl),
       heroImageOpacity: opacity,
+      pageBgColor: next.pageBgColor || 'bawaan',
+      hasCopyright: Boolean(next.formCopyright),
       points: parseHeroPoints(next.heroPoints).length,
     },
   });
